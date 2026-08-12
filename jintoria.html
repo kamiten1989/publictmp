@@ -354,7 +354,7 @@
 <body>
 <div id="game-container">
   <div id="hud">
-    <div>Jintoria v4.47(渋滞時にユニットが後退して敵陣から離れてしまう不具合を修正)</div>
+    <div>Jintoria v4.48(頭上に吹き出しで行動状態を表示: 攻撃/防御/建築/合体/待機)</div>
     <div id="stats-panel">
       <div class="stat-row">
         <span class="stat-label">兵力</span>
@@ -989,6 +989,8 @@ class MainScene extends Phaser.Scene {
 
         engaged.add(u);
         engaged.add(foe);
+        this.setBubble(attacker, 'attack');
+        if (!defender.isKing) this.setBubble(defender, 'defend');
         const isGoalTile = !!(attacker.goal && attacker.goal.col === defender.col && attacker.goal.row === defender.row);
         this.resolveBattle(attacker, defender, { col: defender.col, row: defender.row }, isGoalTile);
       }
@@ -1025,6 +1027,7 @@ class MainScene extends Phaser.Scene {
         // 消える側(mover)だけengagedにする。受け側(target)は同じtick内でも自分の行動ができるようにする
         // (受け側もengagedにしてしまうと、次々と新しいユニットが隣接し続けた場合に一切動けなくなるバグがあった)
         engaged.add(mover);
+        this.setBubble(target, 'reinforce');
         const isGoalTile = !!(mover.goal && mover.goal.col === target.col && mover.goal.row === target.row);
         this.mergeUnits(mover, target, { col: target.col, row: target.row }, isGoalTile);
       }
@@ -1044,6 +1047,7 @@ class MainScene extends Phaser.Scene {
           continue;
         }
         engaged.add(u);
+        this.setBubble(u, 'attack');
         this.hitHouse(u, targetHouse);
         // 指示中ユニットが家を攻撃し続けている間も、指示の有効期限が切れないよう更新する
         if (u.state === 'commanded') u.commandExpireAt = this.tickCount + COMMAND_TIMEOUT_TICKS;
@@ -1075,6 +1079,7 @@ class MainScene extends Phaser.Scene {
           window.__logDebug('[siege] ' + u.id + '(' + u.team + ') -> 隣接する敵タイル(' + nc + ',' + nr + ')を攻撃(建築不可: ' + this.debugWhyCantBuildHouseAt(nc, nr, u.team) + ')');
         }
         engaged.add(u);
+        this.setBubble(u, 'attack');
         this.hitTerritory(u, nc, nr);
         break;
       }
@@ -1426,7 +1431,6 @@ class MainScene extends Phaser.Scene {
       container: sprite, label, barBg, barFill, targetMarker, selectRing, shadow, topStarMark
     };
 
-    if (def.team === 'enemy' && !def.isKing) this.updateIntentIcon(unit, 'attack');
     this.updateUnitDepth(unit);
 
     return unit;
@@ -1453,7 +1457,15 @@ class MainScene extends Phaser.Scene {
     // no-op
   }
 
-  // 現在の目的を、キャラ右上の小さな絵文字アイコンで表示する
+  // 型ごとに変化しない時は呼び出しを省略できる薄いラッパー。毎tick同じ状態のまま
+  // updateIntentIcon(=吹き出しの再生成)を呼び続けるのを防ぐための入り口(v4.48)
+  setBubble(unit, type) {
+    if (unit.intentType === type) return;
+    this.updateIntentIcon(unit, type);
+  }
+
+  // 現在の行動を、頭上の吹き出し(背景+しっぽ+絵文字)で表示する(v4.48: モナークモナーク風に
+  // 「今なにをしているか」を可視化。旧版はキャラ右上の小さな絵文字アイコンのみだった)
   updateIntentIcon(unit, type) {
     if (unit.intentIcon) {
       unit.intentIcon.destroy();
@@ -1462,12 +1474,25 @@ class MainScene extends Phaser.Scene {
     unit.intentType = type;
     if (!type) return;
 
-    const glyphMap = { attack: '⚔️', reinforce: '🤝', build: '🏠', move: '➡️' };
+    const glyphMap = { attack: '⚔️', defend: '🛡️', reinforce: '🤝', build: '🏠', move: '➡️', idle: '💭' };
     const glyph = glyphMap[type] || '➡️';
-    const icon = this.add.text(0, 0, glyph, { fontSize: '16px' }).setOrigin(0.5);
-    unit.intentIcon = icon;
+
+    const bubbleW = 24, bubbleH = 20;
+    const bg = this.add.graphics();
+    bg.fillStyle(0xffffff, 0.95);
+    bg.fillRoundedRect(-bubbleW / 2, -bubbleH / 2, bubbleW, bubbleH, 6);
+    bg.fillTriangle(-4, bubbleH / 2 - 1, 4, bubbleH / 2 - 1, 0, bubbleH / 2 + 6);
+    bg.lineStyle(1.5, 0x333333, 0.9);
+    bg.strokeRoundedRect(-bubbleW / 2, -bubbleH / 2, bubbleW, bubbleH, 6);
+
+    const text = this.add.text(0, -1, glyph, { fontSize: '13px' }).setOrigin(0.5);
+
+    const bubble = this.add.container(0, 0, [bg, text]);
+    bubble.setScale(0);
+    unit.intentIcon = bubble;
     this.updateUnitDepth(unit);
     this.syncUnitVisuals(unit);
+    this.tweens.add({ targets: bubble, scale: 1, duration: 160, ease: 'Back.easeOut' });
   }
 
   drawGrid() {
@@ -2059,6 +2084,7 @@ class MainScene extends Phaser.Scene {
       const wallOpen = kingWalls.length > 0 && kingWalls.some(w => !w.alive);
       if (wallOpen) {
         if (logIt) window.__logDebug('[AI] ' + unit.id + '(' + unit.team + ') -> ⓪王城の壁が開いている!王を最優先攻撃');
+        this.setBubble(unit, 'attack');
         this.stepToward(unit, enemyKing.col, enemyKing.row);
         return;
       }
@@ -2069,11 +2095,13 @@ class MainScene extends Phaser.Scene {
     const tier = strengthTier(unit.strength);
     if (tier === 'weak' && this.tryBuildAdjacent(unit, owner => owner === null)) {
       if (logIt) window.__logDebug('[AI] ' + unit.id + '(' + unit.team + ') -> ①未占領地に建築(弱ユニット)');
+      this.setBubble(unit, 'build');
       return;
     }
 
     if (this.tryBuildAdjacent(unit, owner => owner === enemyOwner)) {
       if (logIt) window.__logDebug('[AI] ' + unit.id + '(' + unit.team + ') -> ②敵陣地を占領');
+      this.setBubble(unit, 'build');
       return;
     }
 
@@ -2109,12 +2137,14 @@ class MainScene extends Phaser.Scene {
       if (tier !== 'weak' &&
           this.tryBuildAdjacent(unit, owner => owner === null, unit.autoTarget)) {
         if (logIt) window.__logDebug('[AI] ' + unit.id + '(' + unit.team + ') -> ①´経路上の未占領地に建築(中・強ユニット)');
+        this.setBubble(unit, 'build');
         return;
       }
 
       // 【一時的なデバッグ用】座標を含めて記録し、実際に前進しているか(往復していないか)を
       // ログだけで確認できるようにしている。調査が終わったら座標部分は外してよい。
       if (logIt) window.__logDebug('[AI] ' + unit.id + '(' + unit.team + ') -> ③敵陣地へ接近 unit=(' + unit.col + ',' + unit.row + ') target=(' + unit.autoTarget.col + ',' + unit.autoTarget.row + ') stuck=' + unit.autoTargetStuckTicks);
+      this.setBubble(unit, 'attack');
 
       // 目標までのマンハッタン距離が過去最短を更新できているかで、実際に前進できているかを判定する。
       // stepToward()の1マスずつの迂回だけでは解消できない行き詰まり(味方の密集で特定の2マスを
@@ -2143,6 +2173,7 @@ class MainScene extends Phaser.Scene {
     }
 
     if (logIt) window.__logDebug('[AI] ' + unit.id + '(' + unit.team + ') -> ④待機');
+    this.setBubble(unit, 'idle');
     // 敵陣地が存在しない(ほぼ勝敗が決した状態)ため、その場で待機する
   }
 
@@ -2280,6 +2311,7 @@ class MainScene extends Phaser.Scene {
         if (unit.state === 'commanded') this.revertToAuto(unit, '自陣の城壁で通行不可(next=' + next.col + ',' + next.row + ')');
         return;
       }
+      this.setBubble(unit, 'attack');
       this.hitWall(unit, wall);
       // 指示中ユニットが城壁を攻撃し続けている間は、実際に1マスも進めていなくても
       // 指示の有効期限が切れないよう更新する(でないと長時間の攻城中に指示が解除され、
@@ -2295,6 +2327,7 @@ class MainScene extends Phaser.Scene {
     // 経路計算後に新しく家が建った場合などにここで攻撃する)
     const enemyHouseAtTile = this.houses.find(h => h.alive && h.team !== unit.team && h.col === next.col && h.row === next.row);
     if (enemyHouseAtTile) {
+      this.setBubble(unit, 'attack');
       this.hitHouse(unit, enemyHouseAtTile);
       // 指示中ユニットが家を攻撃し続けている間は、実際に1マスも進めていなくても
       // 指示の有効期限が切れないよう更新する(城壁攻撃と同様の扱い)
@@ -2325,6 +2358,7 @@ class MainScene extends Phaser.Scene {
         const logSiege = (window.__siegeCount = (window.__siegeCount || 0) + 1) <= SIEGE_LOG_LIMIT;
         if (unit.state === 'auto' && this.canBuildHouseAt(next.col, next.row, unit.team)) {
           if (logSiege) window.__logDebug('[siege] ' + unit.id + '(' + unit.team + ') -> 移動中に敵タイル(' + next.col + ',' + next.row + ')に建築で上書き');
+          this.setBubble(unit, 'build');
           this.buildHouseAdjacent(unit, next.col, next.row);
           unit.path = []; // 建てた後は仕切り直し、次tickでdecideAutoStepに再判断させる
           return;
@@ -2332,6 +2366,7 @@ class MainScene extends Phaser.Scene {
         if (unit.state === 'auto' && logSiege) {
           window.__logDebug('[siege] ' + unit.id + '(' + unit.team + ') -> 移動中に敵タイル(' + next.col + ',' + next.row + ')を攻撃(建築不可: ' + this.debugWhyCantBuildHouseAt(next.col, next.row, unit.team) + ')');
         }
+        this.setBubble(unit, 'attack');
         this.hitTerritory(unit, next.col, next.row);
         // 城壁攻撃と同様、指示中ユニットが攻撃し続けている間は指示の有効期限を更新する
         if (unit.state === 'commanded') unit.commandExpireAt = this.tickCount + COMMAND_TIMEOUT_TICKS;
@@ -2439,7 +2474,7 @@ class MainScene extends Phaser.Scene {
       unit.barBg.setPosition(x, topY - 6);
       unit.barFill.setPosition(x - 13, topY - 6);
       if (unit.shadow && !(opts && opts.skipShadow)) unit.shadow.setPosition(x, footY + 2);
-      if (unit.intentIcon) unit.intentIcon.setPosition(x + w * 0.4, topY + 4);
+      if (unit.intentIcon) unit.intentIcon.setPosition(x, topY - 22); // 頭上の吹き出し(v4.48: バーの真上、しっぽが頭に向く位置)
     } catch (err) {
       if (window.__logDebug) window.__logDebug('[syncUnitVisuals:' + unit.id + '] ' + (err && err.message ? err.message : err));
     }
