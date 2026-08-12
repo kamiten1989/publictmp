@@ -354,7 +354,7 @@
 <body>
 <div id="game-container">
   <div id="hud">
-    <div>Jintoria v4.46(勝利キャラを2/3サイズに縮小+「勝利!」文字を追加+表示ON/OFFトグル+画像差し替え)</div>
+    <div>Jintoria v4.47(渋滞時にユニットが後退して敵陣から離れてしまう不具合を修正)</div>
     <div id="stats-panel">
       <div class="stat-row">
         <span class="stat-label">兵力</span>
@@ -2238,18 +2238,19 @@ class MainScene extends Phaser.Scene {
       return; // まだ様子見(この場で足踏み)
     }
 
-    // 一定tick以上待っても直進できない場合のみ、横方向への迂回→(最終手段として)後退を試す。
+    // 一定tick以上待っても直進できない場合のみ、横方向への迂回を試す。
     // 迂回方向の2択(上/下または左/右)はランダムに順序を入れ替える。固定順にすると、
     // 隘路で複数tickにわたり同じ2マスの間を機械的に往復し続けるデッドロックが起きていたため
     // (例: 柵の通行可能な行の手前で、味方に阻まれるたびに同じ迂回先へ行き来してしまう)。
+    // v4.47: 以前は迂回でも塞がっている場合の最終手段として「後退」(目標から離れる方向へ移動)も
+    // 試していたが、これにより大量合体で前線が渋滞した際、敵の家に接近・攻撃していたユニットまで
+    // 味方陣地側へ後戻りしてしまう不具合があった。後退はせず、その場で足踏みを続ける(=次のtickで
+    // 密集が解消され次第、前進または迂回を再試行する)方針に変更。
     const sideways = [];
     if (dc !== 0) sideways.push(...(Math.random() < 0.5 ? [[0, 1], [0, -1]] : [[0, -1], [0, 1]]));
     if (dr !== 0) sideways.push(...(Math.random() < 0.5 ? [[1, 0], [-1, 0]] : [[-1, 0], [1, 0]]));
-    const reverse = [];
-    if (dc !== 0) reverse.push([-dc, 0]);
-    if (dr !== 0) reverse.push([0, -dr]);
 
-    for (const [c, r] of [...sideways, ...reverse]) {
+    for (const [c, r] of sideways) {
       const nc = unit.col + c, nr = unit.row + r;
       if (isOpen(nc, nr)) {
         unit.stuckTicks = 0;
