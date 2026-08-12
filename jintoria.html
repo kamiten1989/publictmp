@@ -121,10 +121,10 @@
     bottom: 0;
     display: none;
     gap: 8px;
-    padding: 12px;
+    padding: 12px 12px calc(12px + env(safe-area-inset-bottom, 0px)) 12px;
     background: rgba(15, 15, 26, 0.95);
     border-top: 1px solid #333;
-    z-index: 5;
+    z-index: 50;
   }
   #action-sheet button {
     flex: 1;
@@ -285,7 +285,7 @@
 <body>
 <div id="game-container">
   <div id="hud">
-    <div>Jintoria v4.42(調査用: 目的地タップの詳細ログを追加。原因特定後に削除予定)</div>
+    <div>Jintoria v4.43(調査用: 選択肢ボタンの表示位置ログ+セーフエリア対応)</div>
     <div id="stats-panel">
       <div class="stat-row">
         <span class="stat-label">兵力</span>
@@ -1254,6 +1254,9 @@ class MainScene extends Phaser.Scene {
       el.appendChild(btn);
     });
     el.style.display = 'flex';
+    // v4.43: 選択肢ボタンが実際に画面内の見える位置にあるか確認するための調査ログ
+    const rect = el.getBoundingClientRect();
+    window.__logDebug && window.__logDebug('[actionSheet] 表示: rect=' + JSON.stringify({x:Math.round(rect.x), y:Math.round(rect.y), w:Math.round(rect.width), h:Math.round(rect.height)}) + ' viewport=' + window.innerWidth + 'x' + window.innerHeight + ' buttons=' + el.children.length);
   }
 
   closeActionSheet() {
