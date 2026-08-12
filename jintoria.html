@@ -16,7 +16,9 @@
   }
   #game-container {
     width: 100vw;
-    height: 100vh;
+    height: 100vh; /* 古いブラウザ向けフォールバック */
+    height: 100dvh; /* v4.44: iPhone Safariで100vhがツールバー裏まで含んでしまい、
+                        画面下部の選択肢ボタンなどが実際の可視領域からはみ出す不具合を修正 */
     display: flex;
     flex-direction: column;
   }
@@ -285,7 +287,7 @@
 <body>
 <div id="game-container">
   <div id="hud">
-    <div>Jintoria v4.43(調査用: 選択肢ボタンの表示位置ログ+セーフエリア対応)</div>
+    <div>Jintoria v4.44(100vh→100dvhで選択肢ボタンが画面外に出る不具合を修正。調査用ログ・デバッグ設定を通常値に復帰)</div>
     <div id="stats-panel">
       <div class="stat-row">
         <span class="stat-label">兵力</span>
@@ -344,7 +346,7 @@
   window.__debugLines = [];
   window.__logDebug = function(msg) {
     window.__debugLines.push(msg);
-    if (window.__debugLines.length > 800) window.__debugLines.shift();
+    if (window.__debugLines.length > 40) window.__debugLines.shift();
     var textEl = document.getElementById('debug-log-text');
     if (textEl) textEl.textContent = window.__debugLines.join('\n');
     // パネルの表示/非表示はユーザーが🐞ログボタン・✕ボタンで明示的に切り替える。
@@ -444,8 +446,7 @@ const TIER_BAR_COLOR = { weak: 0x90a4ae, mid: 0x9ccc65, strong: 0xffd166 };
 
 const WALL_HP = 200;           // 城壁の耐久値(v4.0: HP制、tier別ダメージで削る)
 const FLUSTER_HOLD_TICKS = 20; // 城壁攻撃後、王が「焦り顔」を保持するtick数(この間攻撃が無ければ通常顔に戻す。v4.25)
-// 【一時的なデバッグ用設定】[siege]ログの記録上限回数。調査が終わったら[AI]ログの上限(24)と同様に小さくすること(v4.28)
-const SIEGE_LOG_LIMIT = 5000;
+const SIEGE_LOG_LIMIT = 24; // v4.44: 調査完了につき通常値(24)に復帰
 const HOUSE_HP = 100;          // 家の耐久値(v4.0: HP制)
 const HOUSE_SHRINK_HP_THRESHOLD = 50; // 家の残HPがこれ以下になったら見た目が縮み始める
 const HOUSE_LIFE_COST_CAP = 100; // 家作りで消費する兵力の上限(強い兵でもここまでしか減らない)
@@ -728,10 +729,7 @@ class MainScene extends Phaser.Scene {
     // ・コマンドモード中に別マスをタップ: 対象に応じた選択肢を表示
     // ・コマンドモード中に選択中ユニット自身をタップ: キャンセル
     this.input.on('pointerdown', (pointer) => {
-      if (this.gameOver || this.awaitingChoice) {
-        window.__logDebug && window.__logDebug('[pointerdown] 無視: gameOver=' + this.gameOver + ' awaitingChoice=' + this.awaitingChoice);
-        return;
-      }
+      if (this.gameOver || this.awaitingChoice) return;
 
       // 複数選択モードで「指示を出す」を押した後: 対象マスのタップ待ち
       if (this.paused && this.selectedUnits.size > 0) {
@@ -740,7 +738,6 @@ class MainScene extends Phaser.Scene {
       }
 
       if (this.paused && this.selectedUnit) {
-        window.__logDebug && window.__logDebug('[pointerdown] 目的地タップ受信 wasTouch=' + pointer.wasTouch);
         this.handleCommandTarget(pointer.worldX, pointer.worldY);
         return;
       }
@@ -1202,12 +1199,9 @@ class MainScene extends Phaser.Scene {
     const g = pixelToGrid(x, y);
     let col = g.col, row = g.row;
     if (nearUnit) { col = nearUnit.col; row = nearUnit.row; }
-    // v4.42: 「目的地タップで何も反応しない」不具合の原因調査用ログ(調査が終わったら削除すること)
-    window.__logDebug && window.__logDebug('[cmdTarget] tap=(' + Math.round(x) + ',' + Math.round(y) + ') grid=(' + g.col + ',' + g.row + ') nearUnit=' + (nearUnit ? nearUnit.id : 'なし') + ' -> col=' + col + ' row=' + row + ' inBounds=' + inBounds(col, row));
     if (!inBounds(col, row)) return;
 
     if (col === source.col && row === source.row) {
-      window.__logDebug && window.__logDebug('[cmdTarget] 自分自身のマス→キャンセル扱い');
       this.endCommandMode(); // 自分自身をタップ = キャンセル
       return;
     }
@@ -1215,7 +1209,6 @@ class MainScene extends Phaser.Scene {
     const enemyAtTile = this.units.find(u => u.alive && u.team !== source.team && u.col === col && u.row === row);
     const allyAtTile = this.units.find(u => u.alive && u !== source && u.team === source.team && !u.isKing && u.col === col && u.row === row);
     const enemyHouseAtTile = this.houses.find(h => h.alive && h.team !== source.team && h.col === col && h.row === row);
-    window.__logDebug && window.__logDebug('[cmdTarget] enemyAtTile=' + (enemyAtTile ? enemyAtTile.id : 'なし') + ' allyAtTile=' + (allyAtTile ? allyAtTile.id : 'なし') + ' enemyHouseAtTile=' + (enemyHouseAtTile ? 'あり' : 'なし'));
 
     if (enemyAtTile || enemyHouseAtTile) {
       // 敵ユニット or 敵の家のマス: 攻撃 or 待機(何もせず取り消し)
@@ -1254,9 +1247,6 @@ class MainScene extends Phaser.Scene {
       el.appendChild(btn);
     });
     el.style.display = 'flex';
-    // v4.43: 選択肢ボタンが実際に画面内の見える位置にあるか確認するための調査ログ
-    const rect = el.getBoundingClientRect();
-    window.__logDebug && window.__logDebug('[actionSheet] 表示: rect=' + JSON.stringify({x:Math.round(rect.x), y:Math.round(rect.y), w:Math.round(rect.width), h:Math.round(rect.height)}) + ' viewport=' + window.innerWidth + 'x' + window.innerHeight + ' buttons=' + el.children.length);
   }
 
   closeActionSheet() {
@@ -1960,11 +1950,9 @@ class MainScene extends Phaser.Scene {
   // → ③どちらも無ければ敵陣地に近づく → ④敵陣地も無ければその場で待機
   // 敵味方どちらも同じ規則で動く。実際の戦闘・合体は移動の結果隣接した時にresolveAdjacentBattles/Mergesが処理する
   decideAutoStep(unit) {
-    // 【一時的なデバッグ用設定】通常は最初の24回までだが、後から生まれたユニット
-    // (例: 兵194など)の挙動も追えるよう、一時的に上限を大幅に緩和している。
-    // 調査が終わったら24に戻すこと。
+    // v4.44: 調査完了につき通常値(24)に復帰
     window.__decCount = (window.__decCount || 0) + 1;
-    const logIt = window.__decCount <= 5000;
+    const logIt = window.__decCount <= 24;
 
     const enemyOwner = unit.team === 'player' ? 'enemy' : 'player';
 
