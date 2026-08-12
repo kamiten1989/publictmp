@@ -285,7 +285,7 @@
 <body>
 <div id="game-container">
   <div id="hud">
-    <div>Jintoria v4.40(v4.39の定数宣言順序バグを修正。段差機能は正常に動作)</div>
+    <div>Jintoria v4.42(調査用: 目的地タップの詳細ログを追加。原因特定後に削除予定)</div>
     <div id="stats-panel">
       <div class="stat-row">
         <span class="stat-label">兵力</span>
@@ -728,7 +728,10 @@ class MainScene extends Phaser.Scene {
     // ・コマンドモード中に別マスをタップ: 対象に応じた選択肢を表示
     // ・コマンドモード中に選択中ユニット自身をタップ: キャンセル
     this.input.on('pointerdown', (pointer) => {
-      if (this.gameOver || this.awaitingChoice) return;
+      if (this.gameOver || this.awaitingChoice) {
+        window.__logDebug && window.__logDebug('[pointerdown] 無視: gameOver=' + this.gameOver + ' awaitingChoice=' + this.awaitingChoice);
+        return;
+      }
 
       // 複数選択モードで「指示を出す」を押した後: 対象マスのタップ待ち
       if (this.paused && this.selectedUnits.size > 0) {
@@ -737,6 +740,7 @@ class MainScene extends Phaser.Scene {
       }
 
       if (this.paused && this.selectedUnit) {
+        window.__logDebug && window.__logDebug('[pointerdown] 目的地タップ受信 wasTouch=' + pointer.wasTouch);
         this.handleCommandTarget(pointer.worldX, pointer.worldY);
         return;
       }
@@ -837,6 +841,9 @@ class MainScene extends Phaser.Scene {
   // Phaserが毎フレーム自動的に呼ぶ。陣地の再描画はここでまとめて処理し、
   // 同一フレーム内に何度claimTileが呼ばれても実際の再描画は1回で済ませる(パフォーマンス対策)
   update() {
+    // v4.41: スプライト読み込み完了(buildWorld実行)前にもPhaserがupdate()を毎フレーム呼ぶため、
+    // this.unitsなど未初期化の状態でアクセスしてエラーになる不具合を修正
+    if (!this.units) return;
     if (this.territoryDirty) {
       this.redrawTerritory();
       this.territoryDirty = false;
@@ -1195,9 +1202,12 @@ class MainScene extends Phaser.Scene {
     const g = pixelToGrid(x, y);
     let col = g.col, row = g.row;
     if (nearUnit) { col = nearUnit.col; row = nearUnit.row; }
+    // v4.42: 「目的地タップで何も反応しない」不具合の原因調査用ログ(調査が終わったら削除すること)
+    window.__logDebug && window.__logDebug('[cmdTarget] tap=(' + Math.round(x) + ',' + Math.round(y) + ') grid=(' + g.col + ',' + g.row + ') nearUnit=' + (nearUnit ? nearUnit.id : 'なし') + ' -> col=' + col + ' row=' + row + ' inBounds=' + inBounds(col, row));
     if (!inBounds(col, row)) return;
 
     if (col === source.col && row === source.row) {
+      window.__logDebug && window.__logDebug('[cmdTarget] 自分自身のマス→キャンセル扱い');
       this.endCommandMode(); // 自分自身をタップ = キャンセル
       return;
     }
@@ -1205,6 +1215,7 @@ class MainScene extends Phaser.Scene {
     const enemyAtTile = this.units.find(u => u.alive && u.team !== source.team && u.col === col && u.row === row);
     const allyAtTile = this.units.find(u => u.alive && u !== source && u.team === source.team && !u.isKing && u.col === col && u.row === row);
     const enemyHouseAtTile = this.houses.find(h => h.alive && h.team !== source.team && h.col === col && h.row === row);
+    window.__logDebug && window.__logDebug('[cmdTarget] enemyAtTile=' + (enemyAtTile ? enemyAtTile.id : 'なし') + ' allyAtTile=' + (allyAtTile ? allyAtTile.id : 'なし') + ' enemyHouseAtTile=' + (enemyHouseAtTile ? 'あり' : 'なし'));
 
     if (enemyAtTile || enemyHouseAtTile) {
       // 敵ユニット or 敵の家のマス: 攻撃 or 待機(何もせず取り消し)
