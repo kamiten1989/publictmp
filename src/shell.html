@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Jintoria</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.70.0/phaser.min.js" crossorigin="anonymous"></script>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #1a1a2e;
+    overflow: hidden;
+    touch-action: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
+  }
+  #game-container {
+    width: 100vw;
+    height: 100vh; /* 古いブラウザ向けフォールバック */
+    height: 100dvh; /* v4.44: iPhone Safariで100vhがツールバー裏まで含んでしまい、
+                        画面下部の選択肢ボタンなどが実際の可視領域からはみ出す不具合を修正 */
+    display: flex;
+    flex-direction: column;
+  }
+  #hud {
+    color: #eee;
+    background: #0f0f1a;
+    padding: 8px 12px;
+    font-size: 11px;
+    display: flex;
+    flex-direction: column;
+    border-bottom: 1px solid #333;
+    gap: 6px;
+  }
+  #hud .player { color: #4dd0e1; }
+  #hud .enemy { color: #ef5350; }
+  #hud-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+  }
+  #version-label {
+    font-size: 10px;
+    color: #78909c;
+  }
+  #hud-main {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  #settings-panel {
+    display: none;
+    flex-direction: column;
+    gap: 4px;
+    padding-top: 6px;
+    border-top: 1px solid #262636;
+  }
+  #settings-panel.open {
+    display: flex;
+  }
+  #settings-toggle {
+    background: rgba(255,255,255,0.08);
+    color: #cfd8dc;
+    border: 1px solid #546e7a;
+    border-radius: 6px;
+    font-size: 11px;
+    padding: 4px 9px;
+    flex-shrink: 0;
+  }
+  #settings-toggle.active {
+    background: #37474f;
+    color: #fff;
+    border-color: #90a4ae;
+  }
+  #stats-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 150px;
+  }
+  .stat-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .stat-label {
+    font-size: 10px;
+    color: #90a4ae;
+    width: 28px;
+    flex-shrink: 0;
+  }
+  .bar-track {
+    display: flex;
+    width: 90px;
+    height: 10px;
+    background: #26262e;
+    border-radius: 3px;
+    overflow: hidden;
+    border: 1px solid #333;
+    flex-shrink: 0;
+  }
+  .bar-fill {
+    height: 100%;
+    transition: width 0.3s ease;
+  }
+  .bar-fill.player { background: #4dd0e1; }
+  .bar-fill.enemy { background: #ef5350; }
+  .stat-nums {
+    font-size: 10px;
+    white-space: nowrap;
+  }
+  .stat-nums .player { color: #4dd0e1; }
+  .stat-nums .enemy { color: #ef5350; }
+  #phaser-target {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+  }
+  #result-banner {
+    position: absolute;
+    top: 40%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 28px;
+    font-weight: bold;
+    color: #ffd166;
+    text-shadow: 0 0 8px #000;
+    display: none;
+    pointer-events: none;
+  }
+  #victory-overlay {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+  }
+  #victory-overlay-inner {
+    position: relative;
+    animation: victory-bounce 0.9s ease-in-out infinite;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  #victory-overlay-text {
+    font-size: 32px;
+    font-weight: bold;
+    color: #ffd166;
+    text-shadow: 0 0 8px #000, 0 0 16px #000;
+    margin-bottom: 4px;
+    letter-spacing: 2px;
+  }
+  #victory-overlay-imgwrap {
+    position: relative;
+  }
+  #victory-overlay img {
+    max-width: calc(62vw * 2 / 3);
+    max-height: calc(62vh * 2 / 3);
+    filter: drop-shadow(0 8px 16px rgba(0,0,0,0.5));
+    display: block;
+  }
+  #victory-close {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(20, 20, 30, 0.85);
+    color: #fff;
+    font-size: 16px;
+    font-weight: bold;
+    line-height: 32px;
+    text-align: center;
+    padding: 0;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+  }
+  @keyframes victory-bounce {
+    0%, 100% { transform: translateY(0) scale(1); }
+    50% { transform: translateY(-14px) scale(1.03); }
+  }
+  #pause-banner {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(15, 15, 26, 0.9);
+    border: 1px solid #ffd166;
+    border-radius: 20px;
+    padding: 6px 8px 6px 14px;
+    display: none;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #ffd166;
+    z-index: 5;
+  }
+  #pause-banner button {
+    background: #333;
+    color: #eee;
+    border: none;
+    border-radius: 14px;
+    padding: 4px 10px;
+    font-size: 12px;
+  }
+  #action-sheet {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: none;
+    gap: 8px;
+    padding: 12px 12px calc(12px + env(safe-area-inset-bottom, 0px)) 12px;
+    background: rgba(15, 15, 26, 0.95);
+    border-top: 1px solid #333;
+    z-index: 50;
+  }
+  #action-sheet button {
+    flex: 1;
+    padding: 14px 8px;
+    font-size: 14px;
+    font-weight: bold;
+    border: none;
+    border-radius: 10px;
+    color: #fff;
+  }
+  #action-sheet button.action-btn { background: #d84315; }
+  #action-sheet button.wait-btn { background: #455a64; }
+  #debug-log {
+    position: fixed;
+    left: 4px;
+    bottom: calc(4px + env(safe-area-inset-bottom, 0px));
+    max-width: 92%;
+    max-height: 35vh;
+    overflow-y: auto;
+    background: rgba(180, 0, 0, 0.92);
+    color: #fff;
+    font-size: 10px;
+    font-family: monospace;
+    padding: 6px 8px;
+    border-radius: 6px;
+    display: none;
+    z-index: 9999;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  #debug-log-header {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-bottom: 4px;
+    white-space: normal;
+  }
+  #debug-log-close, #debug-log-copy {
+    background: rgba(255,255,255,0.15);
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-size: 12px;
+    padding: 2px 8px;
+    line-height: 1.6;
+  }
+  #debug-log-copy.copied {
+    background: rgba(76, 175, 80, 0.9);
+  }
+  #debug-toggle {
+    position: absolute;
+    right: 4px;
+    top: 4px;
+    z-index: 20;
+    background: rgba(0,0,0,0.5);
+    color: #9ccc65;
+    border: 1px solid #555;
+    border-radius: 6px;
+    font-size: 10px;
+    padding: 3px 6px;
+  }
+  #run-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border: none;
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    color: #fff;
+    background: linear-gradient(135deg, #43a047, #2e7d32);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.15);
+    transition: background 0.2s ease, transform 0.1s ease, box-shadow 0.2s ease;
+    animation: runIdlePulse 1.8s ease-in-out infinite;
+  }
+  #run-toggle:active {
+    transform: scale(0.96);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.1);
+  }
+  #run-toggle .run-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    font-size: 10px;
+  }
+  #run-toggle.running {
+    background: linear-gradient(135deg, #ff8a65, #e64a19);
+    animation: none; /* 実行中は誘導パルスを止める */
+  }
+  #run-toggle.run-pop {
+    animation: runPop 0.35s ease-out;
+  }
+  @keyframes runIdlePulse {
+    0%, 100% {
+      transform: scale(1);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.35), 0 0 0 0 rgba(67,160,71,0.55), inset 0 1px 0 rgba(255,255,255,0.15);
+    }
+    50% {
+      transform: scale(1.05);
+      box-shadow: 0 2px 10px rgba(0,0,0,0.4), 0 0 0 8px rgba(67,160,71,0), inset 0 1px 0 rgba(255,255,255,0.15);
+    }
+  }
+  @keyframes runPop {
+    0% { transform: scale(1); }
+    35% { transform: scale(1.22); }
+    60% { transform: scale(0.92); }
+    100% { transform: scale(1); }
+  }
+  #run-toggle .run-icon {
+    transition: transform 0.25s ease;
+  }
+  #run-toggle.running .run-icon {
+    animation: runIconSpin 0.4s ease-out;
+  }
+  @keyframes runIconSpin {
+    from { transform: rotate(-90deg) scale(0.5); opacity: 0.3; }
+    to { transform: rotate(0deg) scale(1); opacity: 1; }
+  }
+  #speed-controls {
+    display: flex;
+    gap: 4px;
+  }
+  #speed-controls button {
+    background: rgba(255,255,255,0.08);
+    color: #cfd8dc;
+    border: 1px solid #546e7a;
+    border-radius: 6px;
+    font-size: 11px;
+    padding: 3px 8px;
+  }
+  #speed-controls button.active {
+    background: #1565c0;
+    color: #fff;
+    border-color: #90caf9;
+  }
+  #zoom-controls {
+    display: flex;
+    gap: 4px;
+  }
+  #zoom-controls button {
+    background: rgba(255,255,255,0.08);
+    color: #cfd8dc;
+    border: 1px solid #546e7a;
+    border-radius: 6px;
+    font-size: 11px;
+    padding: 3px 8px;
+  }
+  #zoom-controls button.active {
+    background: #6a1b9a;
+    color: #fff;
+    border-color: #ce93d8;
+  }
+  #multi-select-controls {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+  #multi-select-toggle {
+    background: rgba(255,255,255,0.08);
+    color: #cfd8dc;
+    border: 1px solid #546e7a;
+    border-radius: 6px;
+    font-size: 11px;
+    padding: 4px 9px;
+  }
+  #multi-select-toggle.active {
+    background: #00838f;
+    color: #fff;
+    border-color: #4dd0e1;
+  }
+  #victory-char-toggle {
+    background: rgba(255,255,255,0.08);
+    color: #cfd8dc;
+    border: 1px solid #546e7a;
+    border-radius: 6px;
+    font-size: 11px;
+    padding: 4px 9px;
+    align-self: flex-start;
+  }
+  #victory-char-toggle.active {
+    background: #ad6800;
+    color: #fff;
+    border-color: #ffd166;
+  }
+  #multi-issue-btn {
+    background: linear-gradient(135deg, #ffb300, #f57f17);
+    color: #1a1a1a;
+    border: none;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 4px 9px;
+  }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <div id="hud">
+    <!-- v4.49: 画面上部がごちゃごちゃしていたため、速度/ズーム/勝利キャラ表示を
+         ⚙️設定パネル(折りたたみ)にまとめ、常時表示は兵力・占領・選択中・複数選択・開始ボタンのみに整理 -->
+    <div id="hud-top">
+      <span id="version-label">Jintoria v5.0</span>
+      <button id="settings-toggle" onclick="var el = document.getElementById('settings-panel'); var open = el.classList.toggle('open'); this.classList.toggle('active', open);">⚙️ 設定</button>
+    </div>
+    <div id="hud-main">
+      <div id="stats-panel">
+        <div class="stat-row">
+          <span class="stat-label">兵力</span>
+          <div class="bar-track">
+            <div class="bar-fill player" id="bar-troops-player" style="width:50%"></div>
+            <div class="bar-fill enemy" id="bar-troops-enemy" style="width:50%"></div>
+          </div>
+          <span class="stat-nums"><span class="player" id="player-count">-</span>/<span class="enemy" id="enemy-count">-</span></span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">占領</span>
+          <div class="bar-track">
+            <div class="bar-fill player" id="bar-territory-player" style="width:0%"></div>
+            <div class="bar-fill enemy" id="bar-territory-enemy" style="width:0%"></div>
+          </div>
+          <span class="stat-nums"><span class="player" id="player-territory">-</span>/<span class="enemy" id="enemy-territory">-</span></span>
+        </div>
+      </div>
+      <div>選択中: <span id="selected-label">なし</span></div>
+      <div id="multi-select-controls">
+        <button id="multi-select-toggle" onclick="window.__jintoriaScene && window.__jintoriaScene.toggleMultiSelectMode()">複数選択</button>
+        <button id="multi-issue-btn" style="display:none;" onclick="window.__jintoriaScene && window.__jintoriaScene.beginMultiCommandMode()">指示を出す(<span id="multi-select-count">0</span>)</button>
+      </div>
+      <button id="run-toggle" onclick="window.__jintoriaScene && window.__jintoriaScene.toggleRun()">
+        <span class="run-icon">▶</span><span class="run-label">開始</span>
+      </button>
+    </div>
+    <div id="settings-panel">
+      <div id="speed-controls">
+        <button id="speed-slow" onclick="window.__jintoriaScene && window.__jintoriaScene.setSpeed('slow')">ゆっくり</button>
+        <button id="speed-normal" onclick="window.__jintoriaScene && window.__jintoriaScene.setSpeed('normal')">ふつう</button>
+        <button id="speed-fast" class="active" onclick="window.__jintoriaScene && window.__jintoriaScene.setSpeed('fast')">速い</button>
+      </div>
+      <div id="zoom-controls">
+        <button id="zoom-in" class="active" onclick="window.__jintoriaScene && window.__jintoriaScene.setZoomMode('in')">拡大</button>
+        <button id="zoom-normal" onclick="window.__jintoriaScene && window.__jintoriaScene.setZoomMode('normal')">ふつう</button>
+        <button id="zoom-out" onclick="window.__jintoriaScene && window.__jintoriaScene.setZoomMode('out')">縮小</button>
+      </div>
+      <button id="victory-char-toggle" class="active" onclick="window.__jintoriaScene && window.__jintoriaScene.toggleVictoryCharSetting()">勝利キャラ表示</button>
+    </div>
+  </div>
+  <div id="phaser-target">
+    <div id="result-banner"></div>
+    <div id="victory-overlay">
+      <div id="victory-overlay-inner">
+        <div id="victory-overlay-text">勝利!</div>
+        <div id="victory-overlay-imgwrap">
+          <img id="victory-overlay-img" src="" alt="勝利">
+          <button id="victory-close" onclick="document.getElementById('victory-overlay').style.display='none';">✕</button>
+        </div>
+      </div>
+    </div>
+    <div id="pause-banner">⏸ 指示待ち<button onclick="window.__jintoriaScene && window.__jintoriaScene.cancelCommand()">✕ キャンセル</button></div>
+    <div id="action-sheet"></div>
+    <button id="debug-toggle" onclick="var el = document.getElementById('debug-log'); el.style.display = (getComputedStyle(el).display === 'none') ? 'block' : 'none';">🐞ログ</button>
+    <div id="debug-log">
+      <div id="debug-log-header">
+        <button id="debug-log-copy" onclick="window.__copyDebugLog && window.__copyDebugLog();">📋コピー</button>
+        <button id="debug-log-close" onclick="document.getElementById('debug-log').style.display='none';">✕</button>
+      </div>
+      <div id="debug-log-text"></div>
+    </div>
+  </div>
+</div>
+<script>
+  // ===== エラー可視化(iPhone Safariでもコンソールなしで確認できるように) =====
+  // ↓↓↓ 【一時的なデバッグ用設定】通常は40行までだが、特定ユニットの挙動を長期間追うため
+  //     一時的に800行まで保持するようにしている。調査が終わったら40に戻すこと。
+  window.__debugLines = [];
+  window.__logDebug = function(msg) {
+    window.__debugLines.push(msg);
+    if (window.__debugLines.length > 40) window.__debugLines.shift();
+    var textEl = document.getElementById('debug-log-text');
+    if (textEl) textEl.textContent = window.__debugLines.join('\n');
+    // パネルの表示/非表示はユーザーが🐞ログボタン・✕ボタンで明示的に切り替える。
+    // ここで強制的にdisplay='block'にしていたため、ログを閉じていても
+    // 何か記録されるたびに勝手に前面表示されてしまう不具合があった。
+  };
+  window.addEventListener('error', function(e) {
+    window.__logDebug('[ERROR] ' + (e.message || e) + ' @ ' + (e.filename || '') + ':' + (e.lineno || ''));
+  });
+  window.addEventListener('unhandledrejection', function(e) {
+    window.__logDebug('[REJECTION] ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
+  });
+
+  // ===== ログパネルの内容をクリップボードにコピー =====
+  // navigator.clipboard は https(またはlocalhost)でないと使えないことがあるため
+  // (file://で開いた場合など)、失敗時はtextarea+execCommand('copy')にフォールバックする
+  window.__copyDebugLog = function() {
+    var text = window.__debugLines.join('\n');
+    var btn = document.getElementById('debug-log-copy');
+    var showCopied = function(ok) {
+      if (!btn) return;
+      btn.textContent = ok ? '✓コピーしました' : '✗コピー失敗';
+      btn.classList.toggle('copied', ok);
+      setTimeout(function() {
+        btn.textContent = '📋コピー';
+        btn.classList.remove('copied');
+      }, 1500);
+    };
+    var fallbackCopy = function() {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        var ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        showCopied(ok);
+      } catch (e) {
+        showCopied(false);
+      }
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function() {
+        showCopied(true);
+      }).catch(fallbackCopy);
+    } else {
+      fallbackCopy();
+    }
+  };
+</script>
+
+<script src="sprites_data.js"></script>
+<script src="game.js"></script>
+</body>
+</html>

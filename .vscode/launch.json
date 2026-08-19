@@ -1,0 +1,12 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "pwa-msedge",
+      "request": "launch",
+      "name": "Jintoria (src/shell.html) を Edge でデバッグ",
+      "file": "${workspaceFolder}/src/shell.html",
+      "webRoot": "${workspaceFolder}/src"
+    }
+  ]
+}
