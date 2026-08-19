@@ -295,7 +295,7 @@ class MainScene extends Phaser.Scene {
     if (this.input.mouse) this.input.mouse.disableContextMenu();
 
     // ===== 入力 =====
-    // ・自軍ユニットをタップ/クリック、またはPCで右クリック: 一時停止してコマンドモードへ
+    // ・自軍ユニットをタップ/クリック(PCは左クリック。右クリックも従来通り使用可): 一時停止してコマンドモードへ
     // ・コマンドモード中に別マスをタップ: 対象に応じた選択肢を表示
     // ・コマンドモード中に選択中ユニット自身をタップ: キャンセル
     this.input.on('pointerdown', (pointer) => {
@@ -312,8 +312,10 @@ class MainScene extends Phaser.Scene {
         return;
       }
 
-      // PC(マウス)は右クリックのみ反応。スマホ/タブレット(タッチ)はタップで反応
-      if (!pointer.wasTouch && !pointer.rightButtonDown()) return;
+      // PC(マウス)は左クリック(通常クリック)で反応。スマホ/タブレット(タッチ)はタップで反応
+      // (右クリックも従来通り使えるように残す。leftButtonDown()はpointerdown時点では
+      //  ボタン種別により信頼できない環境があるため、rightButtonDown()でないことをもって左クリック扱いする)
+      if (!pointer.wasTouch && pointer.rightButtonDown()) return;
 
       const tappedUnit = this.findUnitNearPixel(pointer.worldX, pointer.worldY, { team: 'player', excludeKing: true });
 
