@@ -4,30 +4,17 @@
     {
       "label": "Jintoria: 開発サーバー起動",
       "type": "shell",
-      "command": "${env:ProgramFiles}\\nodejs\\npx.cmd",
-      "args": ["http-server", "-c-1", "-p", "8080", "."],
-      "options": {
-        "cwd": "${workspaceFolder}/src"
-      },
-      "isBackground": true,
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", "${workspaceFolder}/.vscode/start-server-and-wait.ps1"
+      ],
       "presentation": {
         "reveal": "always",
-        "panel": "dedicated",
-        "group": "jintoria-dev-server"
+        "panel": "dedicated"
       },
-      "problemMatcher": {
-        "pattern": {
-          "regexp": "^unused$",
-          "file": 1,
-          "location": 2,
-          "message": 3
-        },
-        "background": {
-          "activeOnStart": true,
-          "beginsPattern": "^Starting up http-server",
-          "endsPattern": "^Available on:"
-        }
-      }
+      "problemMatcher": []
     }
   ]
 }
