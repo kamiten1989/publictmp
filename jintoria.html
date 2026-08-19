@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Jintoria</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.70.0/phaser.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin="anonymous"></script>
 <style>
   html, body {
     margin: 0;
@@ -418,79 +421,6 @@
 </style>
 </head>
 <body>
-<div id="game-container">
-  <div id="hud">
-    <!-- v4.49: 画面上部がごちゃごちゃしていたため、速度/ズーム/勝利キャラ表示を
-         ⚙️設定パネル(折りたたみ)にまとめ、常時表示は兵力・占領・選択中・複数選択・開始ボタンのみに整理 -->
-    <div id="hud-top">
-      <span id="version-label">Jintoria v5.1</span>
-      <button id="settings-toggle" onclick="var el = document.getElementById('settings-panel'); var open = el.classList.toggle('open'); this.classList.toggle('active', open);">⚙️ 設定</button>
-    </div>
-    <div id="hud-main">
-      <div id="stats-panel">
-        <div class="stat-row">
-          <span class="stat-label">兵力</span>
-          <div class="bar-track">
-            <div class="bar-fill player" id="bar-troops-player" style="width:50%"></div>
-            <div class="bar-fill enemy" id="bar-troops-enemy" style="width:50%"></div>
-          </div>
-          <span class="stat-nums"><span class="player" id="player-count">-</span>/<span class="enemy" id="enemy-count">-</span></span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">占領</span>
-          <div class="bar-track">
-            <div class="bar-fill player" id="bar-territory-player" style="width:0%"></div>
-            <div class="bar-fill enemy" id="bar-territory-enemy" style="width:0%"></div>
-          </div>
-          <span class="stat-nums"><span class="player" id="player-territory">-</span>/<span class="enemy" id="enemy-territory">-</span></span>
-        </div>
-      </div>
-      <div>選択中: <span id="selected-label">なし</span></div>
-      <div id="multi-select-controls">
-        <button id="multi-select-toggle" onclick="window.__jintoriaScene && window.__jintoriaScene.toggleMultiSelectMode()">複数選択</button>
-        <button id="multi-issue-btn" style="display:none;" onclick="window.__jintoriaScene && window.__jintoriaScene.beginMultiCommandMode()">指示を出す(<span id="multi-select-count">0</span>)</button>
-      </div>
-      <button id="run-toggle" onclick="window.__jintoriaScene && window.__jintoriaScene.toggleRun()">
-        <span class="run-icon">▶</span><span class="run-label">開始</span>
-      </button>
-    </div>
-    <div id="settings-panel">
-      <div id="speed-controls">
-        <button id="speed-slow" onclick="window.__jintoriaScene && window.__jintoriaScene.setSpeed('slow')">ゆっくり</button>
-        <button id="speed-normal" onclick="window.__jintoriaScene && window.__jintoriaScene.setSpeed('normal')">ふつう</button>
-        <button id="speed-fast" class="active" onclick="window.__jintoriaScene && window.__jintoriaScene.setSpeed('fast')">速い</button>
-      </div>
-      <div id="zoom-controls">
-        <button id="zoom-in" class="active" onclick="window.__jintoriaScene && window.__jintoriaScene.setZoomMode('in')">拡大</button>
-        <button id="zoom-normal" onclick="window.__jintoriaScene && window.__jintoriaScene.setZoomMode('normal')">ふつう</button>
-        <button id="zoom-out" onclick="window.__jintoriaScene && window.__jintoriaScene.setZoomMode('out')">縮小</button>
-      </div>
-      <button id="victory-char-toggle" class="active" onclick="window.__jintoriaScene && window.__jintoriaScene.toggleVictoryCharSetting()">勝利キャラ表示</button>
-    </div>
-  </div>
-  <div id="phaser-target">
-    <div id="result-banner"></div>
-    <div id="victory-overlay">
-      <div id="victory-overlay-inner">
-        <div id="victory-overlay-text">勝利!</div>
-        <div id="victory-overlay-imgwrap">
-          <img id="victory-overlay-img" src="" alt="勝利">
-          <button id="victory-close" onclick="document.getElementById('victory-overlay').style.display='none';">✕</button>
-        </div>
-      </div>
-    </div>
-    <div id="pause-banner">⏸ 指示待ち<button onclick="window.__jintoriaScene && window.__jintoriaScene.cancelCommand()">✕ キャンセル</button></div>
-    <div id="action-sheet"></div>
-    <button id="debug-toggle" onclick="var el = document.getElementById('debug-log'); el.style.display = (getComputedStyle(el).display === 'none') ? 'block' : 'none';">🐞ログ</button>
-    <div id="debug-log">
-      <div id="debug-log-header">
-        <button id="debug-log-copy" onclick="window.__copyDebugLog && window.__copyDebugLog();">📋コピー</button>
-        <button id="debug-log-close" onclick="document.getElementById('debug-log').style.display='none';">✕</button>
-      </div>
-      <div id="debug-log-text"></div>
-    </div>
-  </div>
-</div>
 <script>
   // ===== エラー可視化(iPhone Safariでもコンソールなしで確認できるように) =====
   // ↓↓↓ 【一時的なデバッグ用設定】通常は40行までだが、特定ユニットの挙動を長期間追うため
@@ -499,11 +429,11 @@
   window.__logDebug = function(msg) {
     window.__debugLines.push(msg);
     if (window.__debugLines.length > 40) window.__debugLines.shift();
-    var textEl = document.getElementById('debug-log-text');
-    if (textEl) textEl.textContent = window.__debugLines.join('\n');
-    // パネルの表示/非表示はユーザーが🐞ログボタン・✕ボタンで明示的に切り替える。
-    // ここで強制的にdisplay='block'にしていたため、ログを閉じていても
-    // 何か記録されるたびに勝手に前面表示されてしまう不具合があった。
+    // パネルへの反映・表示/非表示はReact側(src/ui.jsx)が担当する。
+    // ここではバッファへの記録と購読者への通知のみ行う(React未マウント時は
+    // window.__notifyDebugLogが未定義のため何もしない。バッファには残るので
+    // マウント後にDebugLogPanelが初回描画時にwindow.__debugLinesを読んで反映する)。
+    if (window.__notifyDebugLog) window.__notifyDebugLog();
   };
   window.addEventListener('error', function(e) {
     window.__logDebug('[ERROR] ' + (e.message || e) + ' @ ' + (e.filename || '') + ':' + (e.lineno || ''));
@@ -511,48 +441,342 @@
   window.addEventListener('unhandledrejection', function(e) {
     window.__logDebug('[REJECTION] ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
   });
-
-  // ===== ログパネルの内容をクリップボードにコピー =====
-  // navigator.clipboard は https(またはlocalhost)でないと使えないことがあるため
-  // (file://で開いた場合など)、失敗時はtextarea+execCommand('copy')にフォールバックする
-  window.__copyDebugLog = function() {
-    var text = window.__debugLines.join('\n');
-    var btn = document.getElementById('debug-log-copy');
-    var showCopied = function(ok) {
-      if (!btn) return;
-      btn.textContent = ok ? '✓コピーしました' : '✗コピー失敗';
-      btn.classList.toggle('copied', ok);
-      setTimeout(function() {
-        btn.textContent = '📋コピー';
-        btn.classList.remove('copied');
-      }, 1500);
-    };
-    var fallbackCopy = function() {
-      try {
-        var ta = document.createElement('textarea');
-        ta.value = text;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.focus();
-        ta.select();
-        var ok = document.execCommand('copy');
-        document.body.removeChild(ta);
-        showCopied(ok);
-      } catch (e) {
-        showCopied(false);
-      }
-    };
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(function() {
-        showCopied(true);
-      }).catch(fallbackCopy);
-    } else {
-      fallbackCopy();
-    }
-  };
 </script>
 
+<div id="root"></div>
+<script type="text/babel">
+// ===== jintoria HUD/UI (React) =====
+// Phaserの盤面(src/game.js)は変更せず、その周辺のDOM UI(HUD・アクションシート・
+// 各種バナー・デバッグログパネルなど)だけをこのファイルでReact管理する。
+// game.jsからは window.__jintoriaUI.* を呼ぶだけにし、DOM直接操作は行わない。
+(function () {
+  'use strict';
+
+  // ===== 自前ミニストア(useSyncExternalStoreで購読する) =====
+  function createStore(initialState) {
+    let state = initialState;
+    const listeners = new Set();
+    return {
+      getState() { return state; },
+      setState(patch) {
+        state = typeof patch === 'function' ? patch(state) : Object.assign({}, state, patch);
+        listeners.forEach((fn) => fn());
+      },
+      subscribe(fn) {
+        listeners.add(fn);
+        return () => listeners.delete(fn);
+      }
+    };
+  }
+
+  const store = createStore({
+    selectedLabel: 'なし',
+    pauseBannerVisible: false,
+    multiSelectActive: false,
+    multiSelectCount: 0,
+    running: false,
+    speedMode: 'fast',
+    zoomMode: 'in',
+    victoryCharActive: true,
+    hud: {
+      playerCountLabel: '-', enemyCountLabel: '-',
+      playerTroopPct: 50, enemyTroopPct: 50,
+      playerTerritoryLabel: '-', enemyTerritoryLabel: '-',
+      playerTerrPct: 0, enemyTerrPct: 0
+    },
+    actionSheet: null,     // { labels, onPick } | null
+    resultBanner: null,    // string | null
+    victoryOverlay: null   // 画像src | null
+  });
+
+  function useStoreState() {
+    return React.useSyncExternalStore(store.subscribe, store.getState);
+  }
+
+  // ===== game.js から呼ばれる橋渡しAPI =====
+  function setHud(hud) { store.setState({ hud }); }
+  function setSelectedLabel(text) { store.setState({ selectedLabel: text }); }
+  function setPauseBannerVisible(visible) { store.setState({ pauseBannerVisible: !!visible }); }
+  function setMultiSelectActive(active) { store.setState({ multiSelectActive: !!active }); }
+  function setMultiSelectCount(count) { store.setState({ multiSelectCount: count }); }
+  function setRunState(running) { store.setState({ running: !!running }); }
+  function setSpeedMode(mode) { store.setState({ speedMode: mode }); }
+  function setZoomMode(mode) { store.setState({ zoomMode: mode }); }
+  function setVictoryCharActive(active) { store.setState({ victoryCharActive: !!active }); }
+  function showActionSheet(labels, onPick) { store.setState({ actionSheet: { labels, onPick } }); }
+  function closeActionSheet() { store.setState({ actionSheet: null }); }
+  function showResultBanner(text) { store.setState({ resultBanner: text }); }
+  function showVictoryOverlay(imgSrc) { store.setState({ victoryOverlay: imgSrc }); }
+  function hideVictoryOverlay() { store.setState({ victoryOverlay: null }); }
+
+  window.__jintoriaUI = {
+    setHud, setSelectedLabel, setPauseBannerVisible,
+    setMultiSelectActive, setMultiSelectCount, setRunState,
+    setSpeedMode, setZoomMode, setVictoryCharActive,
+    showActionSheet, closeActionSheet,
+    showResultBanner, showVictoryOverlay, hideVictoryOverlay
+  };
+
+  // ===== デバッグログの購読(バッファ自体はshell.html冒頭の生JSが管理) =====
+  const debugListeners = new Set();
+  window.__notifyDebugLog = function () {
+    debugListeners.forEach((fn) => fn());
+  };
+  function useDebugLines() {
+    const [, bump] = React.useReducer((x) => x + 1, 0);
+    React.useEffect(() => {
+      debugListeners.add(bump);
+      return () => debugListeners.delete(bump);
+    }, []);
+    return window.__debugLines || [];
+  }
+
+  // ===== コンポーネント =====
+  function HudTop({ settingsOpen, onToggleSettings }) {
+    return (
+      <div id="hud-top">
+        <span id="version-label">Jintoria v5.2</span>
+        <button id="settings-toggle" className={settingsOpen ? 'active' : ''} onClick={onToggleSettings}>⚙️ 設定</button>
+      </div>
+    );
+  }
+
+  function StatsPanel() {
+    const { hud } = useStoreState();
+    return (
+      <div id="stats-panel">
+        <div className="stat-row">
+          <span className="stat-label">兵力</span>
+          <div className="bar-track">
+            <div className="bar-fill player" id="bar-troops-player" style={{ width: hud.playerTroopPct + '%' }}></div>
+            <div className="bar-fill enemy" id="bar-troops-enemy" style={{ width: hud.enemyTroopPct + '%' }}></div>
+          </div>
+          <span className="stat-nums">
+            <span className="player" id="player-count">{hud.playerCountLabel}</span>/<span className="enemy" id="enemy-count">{hud.enemyCountLabel}</span>
+          </span>
+        </div>
+        <div className="stat-row">
+          <span className="stat-label">占領</span>
+          <div className="bar-track">
+            <div className="bar-fill player" id="bar-territory-player" style={{ width: hud.playerTerrPct + '%' }}></div>
+            <div className="bar-fill enemy" id="bar-territory-enemy" style={{ width: hud.enemyTerrPct + '%' }}></div>
+          </div>
+          <span className="stat-nums">
+            <span className="player" id="player-territory">{hud.playerTerritoryLabel}</span>/<span className="enemy" id="enemy-territory">{hud.enemyTerritoryLabel}</span>
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  function SelectedLabel() {
+    const { selectedLabel } = useStoreState();
+    return <div>選択中: <span id="selected-label">{selectedLabel}</span></div>;
+  }
+
+  function MultiSelectControls() {
+    const { multiSelectActive, multiSelectCount } = useStoreState();
+    return (
+      <div id="multi-select-controls">
+        <button id="multi-select-toggle" className={multiSelectActive ? 'active' : ''}
+          onClick={() => window.__jintoriaScene && window.__jintoriaScene.toggleMultiSelectMode()}>複数選択</button>
+        <button id="multi-issue-btn" style={{ display: multiSelectCount > 0 ? 'inline-flex' : 'none' }}
+          onClick={() => window.__jintoriaScene && window.__jintoriaScene.beginMultiCommandMode()}>
+          指示を出す(<span id="multi-select-count">{multiSelectCount}</span>)
+        </button>
+      </div>
+    );
+  }
+
+  function RunToggleButton() {
+    const { running } = useStoreState();
+    const btnRef = React.useRef(null);
+    const isFirst = React.useRef(true);
+
+    React.useEffect(() => {
+      if (isFirst.current) { isFirst.current = false; return; }
+      const btn = btnRef.current;
+      if (!btn) return;
+      // クリック時にポップアニメーションを再生(v5.0)。強制リフローで再トリガーする
+      btn.classList.remove('run-pop');
+      void btn.offsetWidth;
+      btn.classList.add('run-pop');
+      const onEnd = () => btn.classList.remove('run-pop');
+      btn.addEventListener('animationend', onEnd, { once: true });
+    }, [running]);
+
+    return (
+      <button id="run-toggle" ref={btnRef} className={running ? 'running' : ''}
+        onClick={() => window.__jintoriaScene && window.__jintoriaScene.toggleRun()}>
+        <span className="run-icon">{running ? '⏸' : '▶'}</span>
+        <span className="run-label">{running ? '停止' : '開始'}</span>
+      </button>
+    );
+  }
+
+  const SPEED_LABELS = { slow: 'ゆっくり', normal: 'ふつう', fast: '速い' };
+  const ZOOM_LABELS = { in: '拡大', normal: 'ふつう', out: '縮小' };
+
+  function SettingsPanel({ open }) {
+    const { speedMode, zoomMode, victoryCharActive } = useStoreState();
+    return (
+      <div id="settings-panel" className={open ? 'open' : ''}>
+        <div id="speed-controls">
+          {['slow', 'normal', 'fast'].map((m) => (
+            <button key={m} id={'speed-' + m} className={speedMode === m ? 'active' : ''}
+              onClick={() => window.__jintoriaScene && window.__jintoriaScene.setSpeed(m)}>{SPEED_LABELS[m]}</button>
+          ))}
+        </div>
+        <div id="zoom-controls">
+          {['in', 'normal', 'out'].map((m) => (
+            <button key={m} id={'zoom-' + m} className={zoomMode === m ? 'active' : ''}
+              onClick={() => window.__jintoriaScene && window.__jintoriaScene.setZoomMode(m)}>{ZOOM_LABELS[m]}</button>
+          ))}
+        </div>
+        <button id="victory-char-toggle" className={victoryCharActive ? 'active' : ''}
+          onClick={() => window.__jintoriaScene && window.__jintoriaScene.toggleVictoryCharSetting()}>勝利キャラ表示</button>
+      </div>
+    );
+  }
+
+  function ResultBanner() {
+    const { resultBanner } = useStoreState();
+    return <div id="result-banner" style={{ display: resultBanner ? 'block' : 'none' }}>{resultBanner || ''}</div>;
+  }
+
+  function VictoryOverlay() {
+    const { victoryOverlay } = useStoreState();
+    return (
+      <div id="victory-overlay" style={{ display: victoryOverlay ? 'flex' : 'none' }}>
+        <div id="victory-overlay-inner">
+          <div id="victory-overlay-text">勝利!</div>
+          <div id="victory-overlay-imgwrap">
+            <img id="victory-overlay-img" src={victoryOverlay || ''} alt="勝利" />
+            <button id="victory-close" onClick={hideVictoryOverlay}>✕</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function PauseBanner() {
+    const { pauseBannerVisible } = useStoreState();
+    return (
+      <div id="pause-banner" style={{ display: pauseBannerVisible ? 'flex' : 'none' }}>
+        ⏸ 指示待ち
+        <button onClick={() => window.__jintoriaScene && window.__jintoriaScene.cancelCommand()}>✕ キャンセル</button>
+      </div>
+    );
+  }
+
+  function ActionSheet() {
+    const { actionSheet } = useStoreState();
+    if (!actionSheet) return <div id="action-sheet"></div>;
+    return (
+      <div id="action-sheet" style={{ display: 'flex' }}>
+        {actionSheet.labels.map((label, i) => (
+          <button key={i} className={label === '待機' ? 'wait-btn' : 'action-btn'}
+            onClick={() => actionSheet.onPick(label)}>{label}</button>
+        ))}
+      </div>
+    );
+  }
+
+  function DebugLogPanel({ open, onClose }) {
+    const lines = useDebugLines();
+    const [copyState, setCopyState] = React.useState('idle'); // idle | copied | failed
+    const copyTimerRef = React.useRef(null);
+
+    const handleCopy = () => {
+      const text = lines.join('\n');
+      const showCopied = (ok) => {
+        setCopyState(ok ? 'copied' : 'failed');
+        if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+        copyTimerRef.current = setTimeout(() => setCopyState('idle'), 1500);
+      };
+      const fallbackCopy = () => {
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          const ok = document.execCommand('copy');
+          document.body.removeChild(ta);
+          showCopied(ok);
+        } catch (e) {
+          showCopied(false);
+        }
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => showCopied(true)).catch(fallbackCopy);
+      } else {
+        fallbackCopy();
+      }
+    };
+
+    return (
+      <div id="debug-log" style={{ display: open ? 'block' : 'none' }}>
+        <div id="debug-log-header">
+          <button id="debug-log-copy" className={copyState === 'copied' ? 'copied' : ''} onClick={handleCopy}>
+            {copyState === 'copied' ? '✓コピーしました' : copyState === 'failed' ? '✗コピー失敗' : '📋コピー'}
+          </button>
+          <button id="debug-log-close" onClick={onClose}>✕</button>
+        </div>
+        <div id="debug-log-text">{lines.join('\n')}</div>
+      </div>
+    );
+  }
+
+  function GameUI() {
+    const [settingsOpen, setSettingsOpen] = React.useState(false);
+    const [debugOpen, setDebugOpen] = React.useState(false);
+
+    return (
+      <div id="game-container">
+        <div id="hud">
+          <HudTop settingsOpen={settingsOpen} onToggleSettings={() => setSettingsOpen((o) => !o)} />
+          <div id="hud-main">
+            <StatsPanel />
+            <SelectedLabel />
+            <MultiSelectControls />
+            <RunToggleButton />
+          </div>
+          <SettingsPanel open={settingsOpen} />
+        </div>
+        <div id="phaser-target">
+          {/* Phaserのcanvasはgame.js側がこの空divの中にappendする。Reactは以後この中身を管理しない */}
+          <div id="phaser-mount"></div>
+          <ResultBanner />
+          <VictoryOverlay />
+          <PauseBanner />
+          <ActionSheet />
+          <button id="debug-toggle" onClick={() => setDebugOpen((o) => !o)}>🐞ログ</button>
+          <DebugLogPanel open={debugOpen} onClose={() => setDebugOpen(false)} />
+        </div>
+      </div>
+    );
+  }
+
+  const root = ReactDOM.createRoot(document.getElementById('root'));
+  // createRoot().render()は(トップレベルscriptからの呼び出しでは)DOMコミットが
+  // 非同期にスケジュールされることがある。#phaser-mountがこの時点で確実にDOMへ
+  // 存在している必要があるため、flushSyncで初回コミットを同期化する。
+  ReactDOM.flushSync(() => {
+    root.render(<GameUI />);
+  });
+
+  // このscriptはtype="text/babel"のため、Babel standaloneがDOMContentLoaded時に
+  // 非同期でトランスパイル・実行する(通常のscriptタグより後回しになる)。そのため
+  // 後続の<script src="game.js">のほうが先に実行され得る。game.js側は
+  // new Phaser.Game()を呼ぶ前にこのイベント(または既にtrueならフラグ)を待つことで、
+  // #phaser-mountが実際にDOMへ存在してから初期化されることを保証する。
+  window.__jintoriaUIReady = true;
+  window.dispatchEvent(new Event('jintoria-ui-ready'));
+})();
+</script>
 <script>
 // ===== キャラクタースプライト(base64埋め込み、単一HTMLファイルとして完結させるため) =====
 // v4.45: 勝利演出で表示するキャラクター画像(ゲームのドット絵とは別の一枚絵)
@@ -965,18 +1189,8 @@ class MainScene extends Phaser.Scene {
   toggleRun() {
     if (this.gameOver) return;
     this.gameRunning = !this.gameRunning;
-    const btn = document.getElementById('run-toggle');
-    if (btn) {
-      btn.classList.toggle('running', this.gameRunning);
-      btn.querySelector('.run-icon').textContent = this.gameRunning ? '⏸' : '▶';
-      btn.querySelector('.run-label').textContent = this.gameRunning ? '停止' : '開始';
-      // クリック時にポップアニメーションを再生(v5.0: 開始ボタンにアニメーション追加)
-      btn.classList.remove('run-pop');
-      // 強制リフローでアニメーションを再トリガーさせる
-      void btn.offsetWidth;
-      btn.classList.add('run-pop');
-      btn.addEventListener('animationend', () => btn.classList.remove('run-pop'), { once: true });
-    }
+    // ボタンの見た目・ポップアニメーション(v5.0)はReact側(RunToggleButton)が担当する
+    window.__jintoriaUI.setRunState(this.gameRunning);
   }
 
   // 速度モードを切り替える('slow' | 'normal' | 'fast')。ふつうがデフォルト
@@ -985,10 +1199,7 @@ class MainScene extends Phaser.Scene {
     this.speedMode = mode;
     this.autoMoveInterval = AUTO_MOVE_INTERVAL_BASE * SPEED_PRESETS[mode];
     this.startAutoTimer();
-    ['slow', 'normal', 'fast'].forEach(m => {
-      const btn = document.getElementById('speed-' + m);
-      if (btn) btn.classList.toggle('active', m === mode);
-    });
+    window.__jintoriaUI.setSpeedMode(mode);
   }
 
   // ズームモードを切り替える('out' | 'normal' | 'in')。ふつうがデフォルト
@@ -996,10 +1207,7 @@ class MainScene extends Phaser.Scene {
     if (!ZOOM_PRESETS[mode]) return;
     this.zoomMode = mode;
     this.cameras.main.setZoom(ZOOM_PRESETS[mode]);
-    ['out', 'normal', 'in'].forEach(m => {
-      const btn = document.getElementById('zoom-' + m);
-      if (btn) btn.classList.toggle('active', m === mode);
-    });
+    window.__jintoriaUI.setZoomMode(mode);
   }
 
   // Phaserが毎フレーム自動的に呼ぶ。陣地の再描画はここでまとめて処理し、
@@ -1178,8 +1386,8 @@ class MainScene extends Phaser.Scene {
     this.units.forEach(u => u.selectRing.setVisible(false));
     this.selectedUnit = unit;
     unit.selectRing.setVisible(true);
-    document.getElementById('selected-label').textContent = `ユニット${unit.id}(指示中) 兵力${this.formatStrengthDisplay(unit.strength)}`;
-    document.getElementById('pause-banner').style.display = 'flex';
+    window.__jintoriaUI.setSelectedLabel(`ユニット${unit.id}(指示中) 兵力${this.formatStrengthDisplay(unit.strength)}`);
+    window.__jintoriaUI.setPauseBannerVisible(true);
     this.setSpotlight(unit);
   }
 
@@ -1188,8 +1396,8 @@ class MainScene extends Phaser.Scene {
     this.paused = false;
     if (this.selectedUnit) this.selectedUnit.selectRing.setVisible(false);
     this.selectedUnit = null;
-    document.getElementById('selected-label').textContent = 'なし';
-    document.getElementById('pause-banner').style.display = 'none';
+    window.__jintoriaUI.setSelectedLabel('なし');
+    window.__jintoriaUI.setPauseBannerVisible(false);
     this.closeActionSheet();
     this.clearSpotlight();
   }
@@ -1226,8 +1434,7 @@ class MainScene extends Phaser.Scene {
   // HUDの「複数選択」ボタンでON/OFFを切り替える
   toggleMultiSelectMode() {
     this.multiSelectMode = !this.multiSelectMode;
-    const btn = document.getElementById('multi-select-toggle');
-    if (btn) btn.classList.toggle('active', this.multiSelectMode);
+    window.__jintoriaUI.setMultiSelectActive(this.multiSelectMode);
     if (!this.multiSelectMode) {
       // モードを抜ける時は選択状態もリセットする
       if (this.paused && this.selectedUnits.size > 0) {
@@ -1258,12 +1465,9 @@ class MainScene extends Phaser.Scene {
   updateMultiSelectLabel() {
     const count = this.selectedUnits.size;
     if (!this.paused) {
-      document.getElementById('selected-label').textContent = count > 0 ? `${count}体選択中` : 'なし';
+      window.__jintoriaUI.setSelectedLabel(count > 0 ? `${count}体選択中` : 'なし');
     }
-    const issueBtn = document.getElementById('multi-issue-btn');
-    const countLabel = document.getElementById('multi-select-count');
-    if (countLabel) countLabel.textContent = count;
-    if (issueBtn) issueBtn.style.display = count > 0 ? 'inline-flex' : 'none';
+    window.__jintoriaUI.setMultiSelectCount(count);
   }
 
   // 選択中の複数ユニットにスポットライトを当て、それ以外を暗くする(setSpotlightの複数版)
@@ -1284,8 +1488,8 @@ class MainScene extends Phaser.Scene {
   beginMultiCommandMode() {
     if (this.selectedUnits.size === 0) return;
     this.paused = true;
-    document.getElementById('pause-banner').style.display = 'flex';
-    document.getElementById('selected-label').textContent = `${this.selectedUnits.size}体に指示中`;
+    window.__jintoriaUI.setPauseBannerVisible(true);
+    window.__jintoriaUI.setSelectedLabel(`${this.selectedUnits.size}体に指示中`);
   }
 
   // 複数選択の指示モードを終了する(単体用のendCommandModeとは別。選択セットも解除する)
@@ -1293,8 +1497,8 @@ class MainScene extends Phaser.Scene {
     this.paused = false;
     this.selectedUnits.forEach(u => { if (u.selectRing) u.selectRing.setVisible(false); });
     this.selectedUnits.clear();
-    document.getElementById('selected-label').textContent = 'なし';
-    document.getElementById('pause-banner').style.display = 'none';
+    window.__jintoriaUI.setSelectedLabel('なし');
+    window.__jintoriaUI.setPauseBannerVisible(false);
     this.closeActionSheet();
     this.clearSpotlight();
     this.updateMultiSelectLabel();
@@ -1413,27 +1617,18 @@ class MainScene extends Phaser.Scene {
     }
   }
 
-  // 画面下部に選択肢ボタンを表示する
+  // 画面下部に選択肢ボタンを表示する(ボタンのDOM生成はReact側のActionSheetが担当)
   openActionSheet(labels, onPick) {
     this.awaitingChoice = true;
-    const el = document.getElementById('action-sheet');
-    el.innerHTML = '';
-    labels.forEach(label => {
-      const btn = document.createElement('button');
-      btn.textContent = label;
-      btn.className = label === '待機' ? 'wait-btn' : 'action-btn';
-      btn.onclick = () => {
-        this.awaitingChoice = false;
-        onPick(label);
-      };
-      el.appendChild(btn);
+    window.__jintoriaUI.showActionSheet(labels, (label) => {
+      this.awaitingChoice = false;
+      onPick(label);
     });
-    el.style.display = 'flex';
   }
 
   closeActionSheet() {
     this.awaitingChoice = false;
-    document.getElementById('action-sheet').style.display = 'none';
+    window.__jintoriaUI.closeActionSheet();
   }
 
   // 強さの階級(弱/中/強)に応じた武器パーツを作る(短剣/剣/斧)
@@ -1960,14 +2155,9 @@ class MainScene extends Phaser.Scene {
       .reduce((sum, u) => sum + u.strength, 0);
     const enemyStrength = this.units.filter(u => u.alive && u.team === 'enemy')
       .reduce((sum, u) => sum + u.strength, 0);
-    document.getElementById('player-count').textContent = this.formatStrengthDisplay(playerStrength);
-    document.getElementById('enemy-count').textContent = this.formatStrengthDisplay(enemyStrength);
-
     const troopTotal = playerStrength + enemyStrength;
     const playerTroopPct = troopTotal ? (playerStrength / troopTotal * 100) : 50;
     const enemyTroopPct = troopTotal ? (enemyStrength / troopTotal * 100) : 50;
-    document.getElementById('bar-troops-player').style.width = playerTroopPct + '%';
-    document.getElementById('bar-troops-enemy').style.width = enemyTroopPct + '%';
 
     let playerTiles = 0, enemyTiles = 0, total = 0;
     for (let r = 0; r < GRID_ROWS; r++) {
@@ -1983,10 +2173,15 @@ class MainScene extends Phaser.Scene {
     }
     const playerTerrPct = total ? (playerTiles / total * 100) : 0;
     const enemyTerrPct = total ? (enemyTiles / total * 100) : 0;
-    document.getElementById('player-territory').textContent = Math.round(playerTerrPct) + '%';
-    document.getElementById('enemy-territory').textContent = Math.round(enemyTerrPct) + '%';
-    document.getElementById('bar-territory-player').style.width = playerTerrPct + '%';
-    document.getElementById('bar-territory-enemy').style.width = enemyTerrPct + '%';
+
+    window.__jintoriaUI.setHud({
+      playerCountLabel: this.formatStrengthDisplay(playerStrength),
+      enemyCountLabel: this.formatStrengthDisplay(enemyStrength),
+      playerTroopPct, enemyTroopPct,
+      playerTerritoryLabel: Math.round(playerTerrPct) + '%',
+      enemyTerritoryLabel: Math.round(enemyTerrPct) + '%',
+      playerTerrPct, enemyTerrPct
+    });
 
     if (!this.gameOver) {
       // 勝敗は「王が敗北したか(defeated)」で決まる。王は敗北しても消えず、その場に残る
@@ -2005,8 +2200,7 @@ class MainScene extends Phaser.Scene {
   // v4.46: HUDの「勝利キャラ表示」トグル。デフォルトはON(表示する)
   toggleVictoryCharSetting() {
     this.showVictoryChar = !this.showVictoryChar;
-    const btn = document.getElementById('victory-char-toggle');
-    if (btn) btn.classList.toggle('active', this.showVictoryChar);
+    window.__jintoriaUI.setVictoryCharActive(this.showVictoryChar);
   }
 
   showResult(text, isVictory) {
@@ -2014,26 +2208,22 @@ class MainScene extends Phaser.Scene {
     // v4.45: 勝利時は文字バナーの代わりに、キャラクター画像のオーバーレイを表示する
     // v4.46: ただし「勝利キャラ表示」トグルがOFFの場合は、勝利時も従来通りの文字バナーにする
     if (isVictory && this.showVictoryChar) {
-      const img = document.getElementById('victory-overlay-img');
-      img.src = VICTORY_IMAGE;
-      document.getElementById('victory-overlay').style.display = 'flex';
+      window.__jintoriaUI.showVictoryOverlay(VICTORY_IMAGE);
       return;
     }
-    const banner = document.getElementById('result-banner');
-    banner.textContent = text;
-    banner.style.display = 'block';
+    window.__jintoriaUI.showResultBanner(text);
   }
 
   selectUnit(unit) {
     this.units.forEach(u => u.selectRing.setVisible(false));
     if (this.selectedUnit === unit) {
       this.selectedUnit = null;
-      document.getElementById('selected-label').textContent = 'なし';
+      window.__jintoriaUI.setSelectedLabel('なし');
       return;
     }
     this.selectedUnit = unit;
     unit.selectRing.setVisible(true);
-    document.getElementById('selected-label').textContent = `ユニット${unit.id}`;
+    window.__jintoriaUI.setSelectedLabel(`ユニット${unit.id}`);
   }
 
   issueCommand(unit, col, row, intentType) {
@@ -2898,7 +3088,7 @@ class MainScene extends Phaser.Scene {
         if (wasSelected) {
           this.selectedUnit = target;
           target.selectRing.setVisible(true);
-          document.getElementById('selected-label').textContent = `ユニット${target.id}`;
+          window.__jintoriaUI.setSelectedLabel(`ユニット${target.id}`);
         }
 
         this.updateHud();
@@ -2955,7 +3145,7 @@ class MainScene extends Phaser.Scene {
     unit.alive = false;
     if (this.selectedUnit === unit) {
       this.selectedUnit = null;
-      document.getElementById('selected-label').textContent = 'なし';
+      window.__jintoriaUI.setSelectedLabel('なし');
     }
 
     this.tweens.add({
@@ -3054,7 +3244,7 @@ class MainScene extends Phaser.Scene {
 
 const config = {
   type: Phaser.CANVAS, // WebGLは個別図形を大量描画するこの作りと相性が悪くクラッシュの疑いがあるため、安定性重視でCanvas2Dに固定
-  parent: 'phaser-target',
+  parent: 'phaser-mount', // React(src/ui.jsx)が用意する専用の空divにcanvasを追加する(Reactはこの中身を管理しない)
   width: 800, // v4.31: GRID_COLS拡張(12→14)に合わせて720→800に拡張
   height: 560,
   backgroundColor: '#14181f',
@@ -3062,7 +3252,18 @@ const config = {
   scene: [MainScene]
 };
 
-new Phaser.Game(config);
+// src/ui.jsx はtype="text/babel"のためBabel standaloneがDOMContentLoaded時に非同期で
+// 実行する(=このscriptより後になり得る)。#phaser-mountが実際にDOM上へ存在してから
+// Phaser.Gameを初期化するため、Reactマウント完了の合図(window.__jintoriaUIReady/
+// 'jintoria-ui-ready'イベント)を待つ。
+function startPhaserGame() {
+  new Phaser.Game(config);
+}
+if (window.__jintoriaUIReady) {
+  startPhaserGame();
+} else {
+  window.addEventListener('jintoria-ui-ready', startPhaserGame, { once: true });
+}
 </script>
 </body>
 </html>

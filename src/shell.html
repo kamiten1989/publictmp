@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Jintoria</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.70.0/phaser.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin="anonymous"></script>
 <style>
   html, body {
     margin: 0;
@@ -418,79 +421,6 @@
 </style>
 </head>
 <body>
-<div id="game-container">
-  <div id="hud">
-    <!-- v4.49: 画面上部がごちゃごちゃしていたため、速度/ズーム/勝利キャラ表示を
-         ⚙️設定パネル(折りたたみ)にまとめ、常時表示は兵力・占領・選択中・複数選択・開始ボタンのみに整理 -->
-    <div id="hud-top">
-      <span id="version-label">Jintoria v5.1</span>
-      <button id="settings-toggle" onclick="var el = document.getElementById('settings-panel'); var open = el.classList.toggle('open'); this.classList.toggle('active', open);">⚙️ 設定</button>
-    </div>
-    <div id="hud-main">
-      <div id="stats-panel">
-        <div class="stat-row">
-          <span class="stat-label">兵力</span>
-          <div class="bar-track">
-            <div class="bar-fill player" id="bar-troops-player" style="width:50%"></div>
-            <div class="bar-fill enemy" id="bar-troops-enemy" style="width:50%"></div>
-          </div>
-          <span class="stat-nums"><span class="player" id="player-count">-</span>/<span class="enemy" id="enemy-count">-</span></span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">占領</span>
-          <div class="bar-track">
-            <div class="bar-fill player" id="bar-territory-player" style="width:0%"></div>
-            <div class="bar-fill enemy" id="bar-territory-enemy" style="width:0%"></div>
-          </div>
-          <span class="stat-nums"><span class="player" id="player-territory">-</span>/<span class="enemy" id="enemy-territory">-</span></span>
-        </div>
-      </div>
-      <div>選択中: <span id="selected-label">なし</span></div>
-      <div id="multi-select-controls">
-        <button id="multi-select-toggle" onclick="window.__jintoriaScene && window.__jintoriaScene.toggleMultiSelectMode()">複数選択</button>
-        <button id="multi-issue-btn" style="display:none;" onclick="window.__jintoriaScene && window.__jintoriaScene.beginMultiCommandMode()">指示を出す(<span id="multi-select-count">0</span>)</button>
-      </div>
-      <button id="run-toggle" onclick="window.__jintoriaScene && window.__jintoriaScene.toggleRun()">
-        <span class="run-icon">▶</span><span class="run-label">開始</span>
-      </button>
-    </div>
-    <div id="settings-panel">
-      <div id="speed-controls">
-        <button id="speed-slow" onclick="window.__jintoriaScene && window.__jintoriaScene.setSpeed('slow')">ゆっくり</button>
-        <button id="speed-normal" onclick="window.__jintoriaScene && window.__jintoriaScene.setSpeed('normal')">ふつう</button>
-        <button id="speed-fast" class="active" onclick="window.__jintoriaScene && window.__jintoriaScene.setSpeed('fast')">速い</button>
-      </div>
-      <div id="zoom-controls">
-        <button id="zoom-in" class="active" onclick="window.__jintoriaScene && window.__jintoriaScene.setZoomMode('in')">拡大</button>
-        <button id="zoom-normal" onclick="window.__jintoriaScene && window.__jintoriaScene.setZoomMode('normal')">ふつう</button>
-        <button id="zoom-out" onclick="window.__jintoriaScene && window.__jintoriaScene.setZoomMode('out')">縮小</button>
-      </div>
-      <button id="victory-char-toggle" class="active" onclick="window.__jintoriaScene && window.__jintoriaScene.toggleVictoryCharSetting()">勝利キャラ表示</button>
-    </div>
-  </div>
-  <div id="phaser-target">
-    <div id="result-banner"></div>
-    <div id="victory-overlay">
-      <div id="victory-overlay-inner">
-        <div id="victory-overlay-text">勝利!</div>
-        <div id="victory-overlay-imgwrap">
-          <img id="victory-overlay-img" src="" alt="勝利">
-          <button id="victory-close" onclick="document.getElementById('victory-overlay').style.display='none';">✕</button>
-        </div>
-      </div>
-    </div>
-    <div id="pause-banner">⏸ 指示待ち<button onclick="window.__jintoriaScene && window.__jintoriaScene.cancelCommand()">✕ キャンセル</button></div>
-    <div id="action-sheet"></div>
-    <button id="debug-toggle" onclick="var el = document.getElementById('debug-log'); el.style.display = (getComputedStyle(el).display === 'none') ? 'block' : 'none';">🐞ログ</button>
-    <div id="debug-log">
-      <div id="debug-log-header">
-        <button id="debug-log-copy" onclick="window.__copyDebugLog && window.__copyDebugLog();">📋コピー</button>
-        <button id="debug-log-close" onclick="document.getElementById('debug-log').style.display='none';">✕</button>
-      </div>
-      <div id="debug-log-text"></div>
-    </div>
-  </div>
-</div>
 <script>
   // ===== エラー可視化(iPhone Safariでもコンソールなしで確認できるように) =====
   // ↓↓↓ 【一時的なデバッグ用設定】通常は40行までだが、特定ユニットの挙動を長期間追うため
@@ -499,11 +429,11 @@
   window.__logDebug = function(msg) {
     window.__debugLines.push(msg);
     if (window.__debugLines.length > 40) window.__debugLines.shift();
-    var textEl = document.getElementById('debug-log-text');
-    if (textEl) textEl.textContent = window.__debugLines.join('\n');
-    // パネルの表示/非表示はユーザーが🐞ログボタン・✕ボタンで明示的に切り替える。
-    // ここで強制的にdisplay='block'にしていたため、ログを閉じていても
-    // 何か記録されるたびに勝手に前面表示されてしまう不具合があった。
+    // パネルへの反映・表示/非表示はReact側(src/ui.jsx)が担当する。
+    // ここではバッファへの記録と購読者への通知のみ行う(React未マウント時は
+    // window.__notifyDebugLogが未定義のため何もしない。バッファには残るので
+    // マウント後にDebugLogPanelが初回描画時にwindow.__debugLinesを読んで反映する)。
+    if (window.__notifyDebugLog) window.__notifyDebugLog();
   };
   window.addEventListener('error', function(e) {
     window.__logDebug('[ERROR] ' + (e.message || e) + ' @ ' + (e.filename || '') + ':' + (e.lineno || ''));
@@ -511,48 +441,10 @@
   window.addEventListener('unhandledrejection', function(e) {
     window.__logDebug('[REJECTION] ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
   });
-
-  // ===== ログパネルの内容をクリップボードにコピー =====
-  // navigator.clipboard は https(またはlocalhost)でないと使えないことがあるため
-  // (file://で開いた場合など)、失敗時はtextarea+execCommand('copy')にフォールバックする
-  window.__copyDebugLog = function() {
-    var text = window.__debugLines.join('\n');
-    var btn = document.getElementById('debug-log-copy');
-    var showCopied = function(ok) {
-      if (!btn) return;
-      btn.textContent = ok ? '✓コピーしました' : '✗コピー失敗';
-      btn.classList.toggle('copied', ok);
-      setTimeout(function() {
-        btn.textContent = '📋コピー';
-        btn.classList.remove('copied');
-      }, 1500);
-    };
-    var fallbackCopy = function() {
-      try {
-        var ta = document.createElement('textarea');
-        ta.value = text;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.focus();
-        ta.select();
-        var ok = document.execCommand('copy');
-        document.body.removeChild(ta);
-        showCopied(ok);
-      } catch (e) {
-        showCopied(false);
-      }
-    };
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(function() {
-        showCopied(true);
-      }).catch(fallbackCopy);
-    } else {
-      fallbackCopy();
-    }
-  };
 </script>
 
+<div id="root"></div>
+<script type="text/babel" src="ui.jsx"></script>
 <script src="sprites_data.js"></script>
 <script src="game.js"></script>
 </body>

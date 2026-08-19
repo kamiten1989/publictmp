@@ -376,18 +376,8 @@ class MainScene extends Phaser.Scene {
   toggleRun() {
     if (this.gameOver) return;
     this.gameRunning = !this.gameRunning;
-    const btn = document.getElementById('run-toggle');
-    if (btn) {
-      btn.classList.toggle('running', this.gameRunning);
-      btn.querySelector('.run-icon').textContent = this.gameRunning ? '⏸' : '▶';
-      btn.querySelector('.run-label').textContent = this.gameRunning ? '停止' : '開始';
-      // クリック時にポップアニメーションを再生(v5.0: 開始ボタンにアニメーション追加)
-      btn.classList.remove('run-pop');
-      // 強制リフローでアニメーションを再トリガーさせる
-      void btn.offsetWidth;
-      btn.classList.add('run-pop');
-      btn.addEventListener('animationend', () => btn.classList.remove('run-pop'), { once: true });
-    }
+    // ボタンの見た目・ポップアニメーション(v5.0)はReact側(RunToggleButton)が担当する
+    window.__jintoriaUI.setRunState(this.gameRunning);
   }
 
   // 速度モードを切り替える('slow' | 'normal' | 'fast')。ふつうがデフォルト
@@ -396,10 +386,7 @@ class MainScene extends Phaser.Scene {
     this.speedMode = mode;
     this.autoMoveInterval = AUTO_MOVE_INTERVAL_BASE * SPEED_PRESETS[mode];
     this.startAutoTimer();
-    ['slow', 'normal', 'fast'].forEach(m => {
-      const btn = document.getElementById('speed-' + m);
-      if (btn) btn.classList.toggle('active', m === mode);
-    });
+    window.__jintoriaUI.setSpeedMode(mode);
   }
 
   // ズームモードを切り替える('out' | 'normal' | 'in')。ふつうがデフォルト
@@ -407,10 +394,7 @@ class MainScene extends Phaser.Scene {
     if (!ZOOM_PRESETS[mode]) return;
     this.zoomMode = mode;
     this.cameras.main.setZoom(ZOOM_PRESETS[mode]);
-    ['out', 'normal', 'in'].forEach(m => {
-      const btn = document.getElementById('zoom-' + m);
-      if (btn) btn.classList.toggle('active', m === mode);
-    });
+    window.__jintoriaUI.setZoomMode(mode);
   }
 
   // Phaserが毎フレーム自動的に呼ぶ。陣地の再描画はここでまとめて処理し、
@@ -589,8 +573,8 @@ class MainScene extends Phaser.Scene {
     this.units.forEach(u => u.selectRing.setVisible(false));
     this.selectedUnit = unit;
     unit.selectRing.setVisible(true);
-    document.getElementById('selected-label').textContent = `ユニット${unit.id}(指示中) 兵力${this.formatStrengthDisplay(unit.strength)}`;
-    document.getElementById('pause-banner').style.display = 'flex';
+    window.__jintoriaUI.setSelectedLabel(`ユニット${unit.id}(指示中) 兵力${this.formatStrengthDisplay(unit.strength)}`);
+    window.__jintoriaUI.setPauseBannerVisible(true);
     this.setSpotlight(unit);
   }
 
@@ -599,8 +583,8 @@ class MainScene extends Phaser.Scene {
     this.paused = false;
     if (this.selectedUnit) this.selectedUnit.selectRing.setVisible(false);
     this.selectedUnit = null;
-    document.getElementById('selected-label').textContent = 'なし';
-    document.getElementById('pause-banner').style.display = 'none';
+    window.__jintoriaUI.setSelectedLabel('なし');
+    window.__jintoriaUI.setPauseBannerVisible(false);
     this.closeActionSheet();
     this.clearSpotlight();
   }
@@ -637,8 +621,7 @@ class MainScene extends Phaser.Scene {
   // HUDの「複数選択」ボタンでON/OFFを切り替える
   toggleMultiSelectMode() {
     this.multiSelectMode = !this.multiSelectMode;
-    const btn = document.getElementById('multi-select-toggle');
-    if (btn) btn.classList.toggle('active', this.multiSelectMode);
+    window.__jintoriaUI.setMultiSelectActive(this.multiSelectMode);
     if (!this.multiSelectMode) {
       // モードを抜ける時は選択状態もリセットする
       if (this.paused && this.selectedUnits.size > 0) {
@@ -669,12 +652,9 @@ class MainScene extends Phaser.Scene {
   updateMultiSelectLabel() {
     const count = this.selectedUnits.size;
     if (!this.paused) {
-      document.getElementById('selected-label').textContent = count > 0 ? `${count}体選択中` : 'なし';
+      window.__jintoriaUI.setSelectedLabel(count > 0 ? `${count}体選択中` : 'なし');
     }
-    const issueBtn = document.getElementById('multi-issue-btn');
-    const countLabel = document.getElementById('multi-select-count');
-    if (countLabel) countLabel.textContent = count;
-    if (issueBtn) issueBtn.style.display = count > 0 ? 'inline-flex' : 'none';
+    window.__jintoriaUI.setMultiSelectCount(count);
   }
 
   // 選択中の複数ユニットにスポットライトを当て、それ以外を暗くする(setSpotlightの複数版)
@@ -695,8 +675,8 @@ class MainScene extends Phaser.Scene {
   beginMultiCommandMode() {
     if (this.selectedUnits.size === 0) return;
     this.paused = true;
-    document.getElementById('pause-banner').style.display = 'flex';
-    document.getElementById('selected-label').textContent = `${this.selectedUnits.size}体に指示中`;
+    window.__jintoriaUI.setPauseBannerVisible(true);
+    window.__jintoriaUI.setSelectedLabel(`${this.selectedUnits.size}体に指示中`);
   }
 
   // 複数選択の指示モードを終了する(単体用のendCommandModeとは別。選択セットも解除する)
@@ -704,8 +684,8 @@ class MainScene extends Phaser.Scene {
     this.paused = false;
     this.selectedUnits.forEach(u => { if (u.selectRing) u.selectRing.setVisible(false); });
     this.selectedUnits.clear();
-    document.getElementById('selected-label').textContent = 'なし';
-    document.getElementById('pause-banner').style.display = 'none';
+    window.__jintoriaUI.setSelectedLabel('なし');
+    window.__jintoriaUI.setPauseBannerVisible(false);
     this.closeActionSheet();
     this.clearSpotlight();
     this.updateMultiSelectLabel();
@@ -824,27 +804,18 @@ class MainScene extends Phaser.Scene {
     }
   }
 
-  // 画面下部に選択肢ボタンを表示する
+  // 画面下部に選択肢ボタンを表示する(ボタンのDOM生成はReact側のActionSheetが担当)
   openActionSheet(labels, onPick) {
     this.awaitingChoice = true;
-    const el = document.getElementById('action-sheet');
-    el.innerHTML = '';
-    labels.forEach(label => {
-      const btn = document.createElement('button');
-      btn.textContent = label;
-      btn.className = label === '待機' ? 'wait-btn' : 'action-btn';
-      btn.onclick = () => {
-        this.awaitingChoice = false;
-        onPick(label);
-      };
-      el.appendChild(btn);
+    window.__jintoriaUI.showActionSheet(labels, (label) => {
+      this.awaitingChoice = false;
+      onPick(label);
     });
-    el.style.display = 'flex';
   }
 
   closeActionSheet() {
     this.awaitingChoice = false;
-    document.getElementById('action-sheet').style.display = 'none';
+    window.__jintoriaUI.closeActionSheet();
   }
 
   // 強さの階級(弱/中/強)に応じた武器パーツを作る(短剣/剣/斧)
@@ -1371,14 +1342,9 @@ class MainScene extends Phaser.Scene {
       .reduce((sum, u) => sum + u.strength, 0);
     const enemyStrength = this.units.filter(u => u.alive && u.team === 'enemy')
       .reduce((sum, u) => sum + u.strength, 0);
-    document.getElementById('player-count').textContent = this.formatStrengthDisplay(playerStrength);
-    document.getElementById('enemy-count').textContent = this.formatStrengthDisplay(enemyStrength);
-
     const troopTotal = playerStrength + enemyStrength;
     const playerTroopPct = troopTotal ? (playerStrength / troopTotal * 100) : 50;
     const enemyTroopPct = troopTotal ? (enemyStrength / troopTotal * 100) : 50;
-    document.getElementById('bar-troops-player').style.width = playerTroopPct + '%';
-    document.getElementById('bar-troops-enemy').style.width = enemyTroopPct + '%';
 
     let playerTiles = 0, enemyTiles = 0, total = 0;
     for (let r = 0; r < GRID_ROWS; r++) {
@@ -1394,10 +1360,15 @@ class MainScene extends Phaser.Scene {
     }
     const playerTerrPct = total ? (playerTiles / total * 100) : 0;
     const enemyTerrPct = total ? (enemyTiles / total * 100) : 0;
-    document.getElementById('player-territory').textContent = Math.round(playerTerrPct) + '%';
-    document.getElementById('enemy-territory').textContent = Math.round(enemyTerrPct) + '%';
-    document.getElementById('bar-territory-player').style.width = playerTerrPct + '%';
-    document.getElementById('bar-territory-enemy').style.width = enemyTerrPct + '%';
+
+    window.__jintoriaUI.setHud({
+      playerCountLabel: this.formatStrengthDisplay(playerStrength),
+      enemyCountLabel: this.formatStrengthDisplay(enemyStrength),
+      playerTroopPct, enemyTroopPct,
+      playerTerritoryLabel: Math.round(playerTerrPct) + '%',
+      enemyTerritoryLabel: Math.round(enemyTerrPct) + '%',
+      playerTerrPct, enemyTerrPct
+    });
 
     if (!this.gameOver) {
       // 勝敗は「王が敗北したか(defeated)」で決まる。王は敗北しても消えず、その場に残る
@@ -1416,8 +1387,7 @@ class MainScene extends Phaser.Scene {
   // v4.46: HUDの「勝利キャラ表示」トグル。デフォルトはON(表示する)
   toggleVictoryCharSetting() {
     this.showVictoryChar = !this.showVictoryChar;
-    const btn = document.getElementById('victory-char-toggle');
-    if (btn) btn.classList.toggle('active', this.showVictoryChar);
+    window.__jintoriaUI.setVictoryCharActive(this.showVictoryChar);
   }
 
   showResult(text, isVictory) {
@@ -1425,26 +1395,22 @@ class MainScene extends Phaser.Scene {
     // v4.45: 勝利時は文字バナーの代わりに、キャラクター画像のオーバーレイを表示する
     // v4.46: ただし「勝利キャラ表示」トグルがOFFの場合は、勝利時も従来通りの文字バナーにする
     if (isVictory && this.showVictoryChar) {
-      const img = document.getElementById('victory-overlay-img');
-      img.src = VICTORY_IMAGE;
-      document.getElementById('victory-overlay').style.display = 'flex';
+      window.__jintoriaUI.showVictoryOverlay(VICTORY_IMAGE);
       return;
     }
-    const banner = document.getElementById('result-banner');
-    banner.textContent = text;
-    banner.style.display = 'block';
+    window.__jintoriaUI.showResultBanner(text);
   }
 
   selectUnit(unit) {
     this.units.forEach(u => u.selectRing.setVisible(false));
     if (this.selectedUnit === unit) {
       this.selectedUnit = null;
-      document.getElementById('selected-label').textContent = 'なし';
+      window.__jintoriaUI.setSelectedLabel('なし');
       return;
     }
     this.selectedUnit = unit;
     unit.selectRing.setVisible(true);
-    document.getElementById('selected-label').textContent = `ユニット${unit.id}`;
+    window.__jintoriaUI.setSelectedLabel(`ユニット${unit.id}`);
   }
 
   issueCommand(unit, col, row, intentType) {
@@ -2309,7 +2275,7 @@ class MainScene extends Phaser.Scene {
         if (wasSelected) {
           this.selectedUnit = target;
           target.selectRing.setVisible(true);
-          document.getElementById('selected-label').textContent = `ユニット${target.id}`;
+          window.__jintoriaUI.setSelectedLabel(`ユニット${target.id}`);
         }
 
         this.updateHud();
@@ -2366,7 +2332,7 @@ class MainScene extends Phaser.Scene {
     unit.alive = false;
     if (this.selectedUnit === unit) {
       this.selectedUnit = null;
-      document.getElementById('selected-label').textContent = 'なし';
+      window.__jintoriaUI.setSelectedLabel('なし');
     }
 
     this.tweens.add({
@@ -2465,7 +2431,7 @@ class MainScene extends Phaser.Scene {
 
 const config = {
   type: Phaser.CANVAS, // WebGLは個別図形を大量描画するこの作りと相性が悪くクラッシュの疑いがあるため、安定性重視でCanvas2Dに固定
-  parent: 'phaser-target',
+  parent: 'phaser-mount', // React(src/ui.jsx)が用意する専用の空divにcanvasを追加する(Reactはこの中身を管理しない)
   width: 800, // v4.31: GRID_COLS拡張(12→14)に合わせて720→800に拡張
   height: 560,
   backgroundColor: '#14181f',
@@ -2473,4 +2439,15 @@ const config = {
   scene: [MainScene]
 };
 
-new Phaser.Game(config);
+// src/ui.jsx はtype="text/babel"のためBabel standaloneがDOMContentLoaded時に非同期で
+// 実行する(=このscriptより後になり得る)。#phaser-mountが実際にDOM上へ存在してから
+// Phaser.Gameを初期化するため、Reactマウント完了の合図(window.__jintoriaUIReady/
+// 'jintoria-ui-ready'イベント)を待つ。
+function startPhaserGame() {
+  new Phaser.Game(config);
+}
+if (window.__jintoriaUIReady) {
+  startPhaserGame();
+} else {
+  window.addEventListener('jintoria-ui-ready', startPhaserGame, { once: true });
+}
