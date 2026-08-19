@@ -4,9 +4,10 @@
     {
       "type": "pwa-msedge",
       "request": "launch",
-      "name": "Jintoria (src/shell.html) を Edge でデバッグ",
-      "file": "${workspaceFolder}/src/shell.html",
-      "webRoot": "${workspaceFolder}/src"
+      "name": "Jintoria (開発サーバー自動起動+Edgeデバッグ)",
+      "url": "http://127.0.0.1:8080/shell.html",
+      "webRoot": "${workspaceFolder}/src",
+      "preLaunchTask": "Jintoria: 開発サーバー起動"
     }
   ]
 }

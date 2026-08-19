@@ -1,0 +1,33 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Jintoria: 開発サーバー起動",
+      "type": "shell",
+      "command": "${env:ProgramFiles}\\nodejs\\npx.cmd",
+      "args": ["http-server", "-c-1", "-p", "8080", "."],
+      "options": {
+        "cwd": "${workspaceFolder}/src"
+      },
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "jintoria-dev-server"
+      },
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^unused$",
+          "file": 1,
+          "location": 2,
+          "message": 3
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^Starting up http-server",
+          "endsPattern": "^Available on:"
+        }
+      }
+    }
+  ]
+}
