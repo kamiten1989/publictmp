@@ -22,6 +22,7 @@ const SPEED_FACTOR_AT_MIN = 2.5;  // スライダー0(超ゆっくり)での倍�
 const SPEED_FACTOR_AT_MAX = 0.15; // スライダー100(超速く)での倍率
 const SPEED_DEFAULT_VALUE = 60;   // 従来のデフォルト('fast'=0.5倍相当)に近い初期位置
 const ZOOM_PRESETS = { out: 0.75, normal: 1.0, in: 1.4 }; // カメラズーム倍率
+const DRAG_SELECT_THRESHOLD_PX = 10; // 複数選択モード中、タップとドラッグ範囲選択を区別する最小移動距離(スクリーン座標px、指のブレを吸収)
 const COMMAND_TIMEOUT_TICKS = 10; // プレイヤー指示の有効期間(実際に処理されたtick数。v3.20で実時間msから変更。
 const STEP_TOWARD_WAIT_TICKS = 3; // 自動AI(stepToward)が直進方向をふさがれた時、迂回を試みるまで待つtick数
 const AUTO_STUCK_PATHFIND_TICKS = 6; // 自動AIが目標に何tick近づけなければBFS経路探索に切り替えるか
@@ -288,6 +289,10 @@ class MainScene extends Phaser.Scene {
     this.selectedUnit = null;
     this.selectedUnits = new Set(); // 複数選択モードで選ばれたユニット群(v3.19)
     this.multiSelectMode = false;   // 複数選択モードのON/OFF
+    this.dragSelectStart = null;    // ドラッグ範囲選択の開始点(v6.2)。{x,y,worldX,worldY} | null
+    this.dragSelectActive = false;  // 実際にドラッグ(閾値以上の移動)とみなされたかどうか
+    this.dragSelectGfx = this.add.graphics(); // ドラッグ中の矩形を描画する専用レイヤー
+    this.dragSelectGfx.setDepth(9000);
     this.paused = false;
     this.gameRunning = false; // デフォルトは停止状態。開始ボタンを押すまでティックは進まない
     this.awaitingChoice = false;
@@ -323,13 +328,16 @@ class MainScene extends Phaser.Scene {
       //  ボタン種別により信頼できない環境があるため、rightButtonDown()でないことをもって左クリック扱いする)
       if (!pointer.wasTouch && pointer.rightButtonDown()) return;
 
-      const tappedUnit = this.findUnitNearPixel(pointer.worldX, pointer.worldY, { team: 'player', excludeKing: true });
-
-      // 複数選択モード中: タップで選択セットへの追加/解除のみ行う(単体コマンドモードには入らない)
+      // 複数選択モード中: ここでは即座にトグルせず、開始点だけ記録する。
+      // 実際にタップ(選択セットへの追加/解除)かドラッグ範囲選択かは、pointerup時点で
+      // 移動距離(DRAG_SELECT_THRESHOLD_PX)を見て判定する(v6.2)
       if (this.multiSelectMode) {
-        if (tappedUnit) this.toggleUnitSelection(tappedUnit);
+        this.dragSelectStart = { x: pointer.x, y: pointer.y, worldX: pointer.worldX, worldY: pointer.worldY };
+        this.dragSelectActive = false;
         return;
       }
+
+      const tappedUnit = this.findUnitNearPixel(pointer.worldX, pointer.worldY, { team: 'player', excludeKing: true });
 
       if (tappedUnit) {
         this.beginCommandMode(tappedUnit);
@@ -340,6 +348,36 @@ class MainScene extends Phaser.Scene {
       const infoUnit = this.findUnitNearPixel(pointer.worldX, pointer.worldY, {});
       if (infoUnit) {
         this.showUnitValuePopup(infoUnit);
+      }
+    });
+
+    // 複数選択モード中のドラッグ移動: 閾値を超えたらドラッグ範囲選択とみなし、矩形を描画し続ける
+    this.input.on('pointermove', (pointer) => {
+      if (!this.dragSelectStart || !this.multiSelectMode) return;
+      const dx = pointer.x - this.dragSelectStart.x, dy = pointer.y - this.dragSelectStart.y;
+      if (!this.dragSelectActive && Math.hypot(dx, dy) >= DRAG_SELECT_THRESHOLD_PX) {
+        this.dragSelectActive = true;
+      }
+      if (this.dragSelectActive) {
+        this.updateDragSelectRect(this.dragSelectStart.worldX, this.dragSelectStart.worldY, pointer.worldX, pointer.worldY);
+      }
+    });
+
+    // 複数選択モード中の指離し/クリック解除: ドラッグだったら矩形内を一括選択、
+    // 動いていなければ従来通りタップとして単体の追加/解除を行う
+    this.input.on('pointerup', (pointer) => {
+      if (!this.dragSelectStart) return;
+      const start = this.dragSelectStart;
+      const wasActive = this.dragSelectActive;
+      this.dragSelectStart = null;
+      this.dragSelectActive = false;
+      this.clearDragSelectRect();
+      if (this.gameOver || this.awaitingChoice || !this.multiSelectMode) return;
+      if (wasActive) {
+        this.finishDragSelect(start.worldX, start.worldY, pointer.worldX, pointer.worldY);
+      } else {
+        const tappedUnit = this.findUnitNearPixel(pointer.worldX, pointer.worldY, { team: 'player', excludeKing: true });
+        if (tappedUnit) this.toggleUnitSelection(tappedUnit);
       }
     });
 
@@ -628,13 +666,20 @@ class MainScene extends Phaser.Scene {
   }
 
   // ===== 複数選択モード(v3.19) =====
-  // スマホでの範囲ドラッグは操作が難しいため、「複数選択」トグルON中は
-  // 自軍ユニットをタップするたびに選択セットへ追加/解除する方式にしている。
+  // 「複数選択」トグルON中は、自軍ユニットをタップするたびに選択セットへ追加/解除できる。
+  // v6.2: それに加えて、何もない場所からドラッグすると矩形範囲内の自軍ユニットを
+  // まとめて選択セットに追加できる(モナークモナーク風)。タップ/ドラッグの判定は
+  // pointerup時点での移動距離(DRAG_SELECT_THRESHOLD_PX)で行う。カメラのドラッグパン機能が
+  // 存在しないため、PC/スマホどちらでも同じジェスチャーで動作する。
 
   // HUDの「複数選択」ボタンでON/OFFを切り替える
   toggleMultiSelectMode() {
     this.multiSelectMode = !this.multiSelectMode;
     window.__jintoriaUI.setMultiSelectActive(this.multiSelectMode);
+    // モード外では進行中のドラッグ範囲選択も無効化する(ボタン連打などで宙に浮いた状態を防ぐ)
+    this.dragSelectStart = null;
+    this.dragSelectActive = false;
+    this.clearDragSelectRect();
     if (!this.multiSelectMode) {
       // モードを抜ける時は選択状態もリセットする
       if (this.paused && this.selectedUnits.size > 0) {
@@ -646,6 +691,43 @@ class MainScene extends Phaser.Scene {
         this.updateMultiSelectLabel();
       }
     }
+  }
+
+  // ドラッグ範囲選択中の矩形を(再)描画する。座標はワールド座標(ズームに影響されないユニット位置と一致させるため)
+  updateDragSelectRect(x0, y0, x1, y1) {
+    const rx = Math.min(x0, x1), ry = Math.min(y0, y1);
+    const rw = Math.abs(x1 - x0), rh = Math.abs(y1 - y0);
+    this.dragSelectGfx.clear();
+    this.dragSelectGfx.fillStyle(0x4dd0e1, 0.15);
+    this.dragSelectGfx.fillRect(rx, ry, rw, rh);
+    this.dragSelectGfx.lineStyle(2, 0x4dd0e1, 0.9);
+    this.dragSelectGfx.strokeRect(rx, ry, rw, rh);
+  }
+
+  // ドラッグ範囲選択の矩形表示を消す
+  clearDragSelectRect() {
+    if (this.dragSelectGfx) this.dragSelectGfx.clear();
+  }
+
+  // ドラッグ範囲選択の確定: 矩形内にいる自軍ユニット(王除く)をまとめて選択セットに追加する
+  // (タップでの追加/解除と同様に「追加」のみ。矩形内に何もいなければ何もしない)
+  finishDragSelect(x0, y0, x1, y1) {
+    const left = Math.min(x0, x1), right = Math.max(x0, x1);
+    const top = Math.min(y0, y1), bottom = Math.max(y0, y1);
+    const hits = this.units.filter(u =>
+      u.alive && u.team === 'player' && !u.isKing &&
+      u.container.x >= left && u.container.x <= right &&
+      u.container.y >= top && u.container.y <= bottom
+    );
+    if (hits.length === 0) return;
+    hits.forEach(u => {
+      if (!this.selectedUnits.has(u)) {
+        this.selectedUnits.add(u);
+        u.selectRing.setVisible(true);
+      }
+    });
+    this.updateMultiSelectLabel();
+    this.setMultiSpotlight();
   }
 
   // 複数選択モード中のユニットタップ: 選択セットへの追加/解除をトグルする
