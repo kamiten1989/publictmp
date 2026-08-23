@@ -22,6 +22,7 @@ const SPEED_FACTOR_AT_MIN = 2.5;  // スライダー0(超ゆっくり)での倍�
 const SPEED_FACTOR_AT_MAX = 0.15; // スライダー100(超速く)での倍率
 const SPEED_DEFAULT_VALUE = 60;   // 従来のデフォルト('fast'=0.5倍相当)に近い初期位置
 const ZOOM_PRESETS = { out: 0.75, normal: 1.0, in: 1.4 }; // カメラズーム倍率
+const DRAG_SELECT_THRESHOLD_PX = 10; // 複数選択モード中、タップとドラッグ範囲選択を区別する最小移動距離(スクリーン座標px、指のブレを吸収)
 const COMMAND_TIMEOUT_TICKS = 10; // プレイヤー指示の有効期間(実際に処理されたtick数。v3.20で実時間msから変更。
 const STEP_TOWARD_WAIT_TICKS = 3; // 自動AI(stepToward)が直進方向をふさがれた時、迂回を試みるまで待つtick数
 const AUTO_STUCK_PATHFIND_TICKS = 6; // 自動AIが目標に何tick近づけなければBFS経路探索に切り替えるか
@@ -63,6 +64,12 @@ const HOUSE_FIRST_SPAWN_DELAY_MAX = 20; // 初回生産までのtick数(消費�
 const TIER_DAMAGE = { weak: 10, mid: 20, strong: 50 }; // 1tickごとに対象のHPから引かれる値
 const TERRITORY_TILE_HP = 30;             // 普通タイル(城壁でも家でもない占領マス)のHP
 const TERRITORY_AUTO_CLAIM_CHANCE = 0.15;  // 家の周囲1マス(斜め含む)が毎tick自動占有される確率
+
+// ===== 木(障害物、v6.4) =====
+// 陣営に属さない中立のオブジェクト。ユニットが隣接マスへ移動しようとすると城壁と同様に
+// 攻撃してHPを削り、破壊すると通行可能になる(どちらの陣営のユニットからも破壊できる)。
+const TREE_HP = 20;       // 木の耐久値。弱ティア(TIER_DAMAGE.weak=10)なら2回、中ティア以上なら1回で倒せる
+const TREE_TARGET_H = 48; // 表示時の目標高さ(px)
 
 
 
@@ -108,6 +115,16 @@ const WALL_DEFS = [
 // 柵(マップ中央の縦の隔たり)。row=4だけ自然に開いた通路。
 // row=2の1マスだけ「橋を架けられる」柵として、破壊ではなく建設で通行可能にできる。
 const FENCE_DEFS = [0, 1, 2, 3, 5, 6, 7, 8].map(row => ({ col: FENCE_COL, row })); // 柵の列。段差の境目(FENCE_COL)と共通
+
+// 木の試験配置(v6.4): 自陣寄り2箇所・敵陣寄り2箇所・中央通路(柵の切れ目row=4)の合流点に1箇所。
+// 王の周囲城壁(col0-2/11-13, row3-5)・柵(col8)・初期ユニット配置とは重ならない位置を選定。
+const TREE_DEFS = [
+  { col: 4, row: 2 },
+  { col: 4, row: 7 },
+  { col: 9, row: 2 },
+  { col: 9, row: 7 },
+  { col: 7, row: 4 }
+];
 
 // ===== グリッド <-> ピクセル変換(アイソメトリック) =====
 // 返す座標は「そのマスのダイヤ(菱形)の中心」。承認済みのプレビュー(jintoria-iso-preview.html)と同じ計算式。
@@ -272,6 +289,7 @@ class MainScene extends Phaser.Scene {
     // ===== 地形・構造物生成 =====
     this.fences = FENCE_DEFS.map(c => this.createFence(c));
     this.walls = WALL_DEFS.map(w => this.createWall(w));
+    this.trees = TREE_DEFS.map(t => this.createTree(t));
     this.houses = [];
 
     // ===== 石タイル(v4.14) =====
@@ -288,6 +306,10 @@ class MainScene extends Phaser.Scene {
     this.selectedUnit = null;
     this.selectedUnits = new Set(); // 複数選択モードで選ばれたユニット群(v3.19)
     this.multiSelectMode = false;   // 複数選択モードのON/OFF
+    this.dragSelectStart = null;    // ドラッグ範囲選択の開始点(v6.2)。{x,y,worldX,worldY} | null
+    this.dragSelectActive = false;  // 実際にドラッグ(閾値以上の移動)とみなされたかどうか
+    this.dragSelectGfx = this.add.graphics(); // ドラッグ中の矩形を描画する専用レイヤー
+    this.dragSelectGfx.setDepth(9000);
     this.paused = false;
     this.gameRunning = false; // デフォルトは停止状態。開始ボタンを押すまでティックは進まない
     this.awaitingChoice = false;
@@ -323,13 +345,16 @@ class MainScene extends Phaser.Scene {
       //  ボタン種別により信頼できない環境があるため、rightButtonDown()でないことをもって左クリック扱いする)
       if (!pointer.wasTouch && pointer.rightButtonDown()) return;
 
-      const tappedUnit = this.findUnitNearPixel(pointer.worldX, pointer.worldY, { team: 'player', excludeKing: true });
-
-      // 複数選択モード中: タップで選択セットへの追加/解除のみ行う(単体コマンドモードには入らない)
+      // 複数選択モード中: ここでは即座にトグルせず、開始点だけ記録する。
+      // 実際にタップ(選択セットへの追加/解除)かドラッグ範囲選択かは、pointerup時点で
+      // 移動距離(DRAG_SELECT_THRESHOLD_PX)を見て判定する(v6.2)
       if (this.multiSelectMode) {
-        if (tappedUnit) this.toggleUnitSelection(tappedUnit);
+        this.dragSelectStart = { x: pointer.x, y: pointer.y, worldX: pointer.worldX, worldY: pointer.worldY };
+        this.dragSelectActive = false;
         return;
       }
+
+      const tappedUnit = this.findUnitNearPixel(pointer.worldX, pointer.worldY, { team: 'player', excludeKing: true });
 
       if (tappedUnit) {
         this.beginCommandMode(tappedUnit);
@@ -340,6 +365,36 @@ class MainScene extends Phaser.Scene {
       const infoUnit = this.findUnitNearPixel(pointer.worldX, pointer.worldY, {});
       if (infoUnit) {
         this.showUnitValuePopup(infoUnit);
+      }
+    });
+
+    // 複数選択モード中のドラッグ移動: 閾値を超えたらドラッグ範囲選択とみなし、矩形を描画し続ける
+    this.input.on('pointermove', (pointer) => {
+      if (!this.dragSelectStart || !this.multiSelectMode) return;
+      const dx = pointer.x - this.dragSelectStart.x, dy = pointer.y - this.dragSelectStart.y;
+      if (!this.dragSelectActive && Math.hypot(dx, dy) >= DRAG_SELECT_THRESHOLD_PX) {
+        this.dragSelectActive = true;
+      }
+      if (this.dragSelectActive) {
+        this.updateDragSelectRect(this.dragSelectStart.worldX, this.dragSelectStart.worldY, pointer.worldX, pointer.worldY);
+      }
+    });
+
+    // 複数選択モード中の指離し/クリック解除: ドラッグだったら矩形内を一括選択、
+    // 動いていなければ従来通りタップとして単体の追加/解除を行う
+    this.input.on('pointerup', (pointer) => {
+      if (!this.dragSelectStart) return;
+      const start = this.dragSelectStart;
+      const wasActive = this.dragSelectActive;
+      this.dragSelectStart = null;
+      this.dragSelectActive = false;
+      this.clearDragSelectRect();
+      if (this.gameOver || this.awaitingChoice || !this.multiSelectMode) return;
+      if (wasActive) {
+        this.finishDragSelect(start.worldX, start.worldY, pointer.worldX, pointer.worldY);
+      } else {
+        const tappedUnit = this.findUnitNearPixel(pointer.worldX, pointer.worldY, { team: 'player', excludeKing: true });
+        if (tappedUnit) this.toggleUnitSelection(tappedUnit);
       }
     });
 
@@ -475,9 +530,12 @@ class MainScene extends Phaser.Scene {
         // なお、指示中のユニット自身の経路が実際にその敵のマスへ踏み込む場合は、
         // advanceAlongPath側の保険(defenderチェック)で通常通り戦闘になるため、
         // 経路上の敵を完全に無視して素通りできてしまうわけではない。
-        const attackerBlocks = attacker.state === 'commanded' && attacker.goal &&
+        // ただし敵の王は例外: 隣接した時点で常に戦闘を優先する(王の撃破がステージ勝利条件そのものであり、
+        // 「目的地への移動を優先して素通りする」のは絶対に望ましくないため。v6.3で修正: 以前はこの判定が
+        // 王にも適用されてしまい、目的地が王のマスと厳密に一致しない指示だと隣接しても素通りしていた)
+        const attackerBlocks = !defender.isKing && attacker.state === 'commanded' && attacker.goal &&
           !(attacker.goal.col === defender.col && attacker.goal.row === defender.row);
-        const defenderBlocks = defender.state === 'commanded' && defender.goal &&
+        const defenderBlocks = !defender.isKing && defender.state === 'commanded' && defender.goal &&
           !(defender.goal.col === attacker.col && defender.goal.row === attacker.row);
         if (attackerBlocks || defenderBlocks) continue;
 
@@ -628,13 +686,20 @@ class MainScene extends Phaser.Scene {
   }
 
   // ===== 複数選択モード(v3.19) =====
-  // スマホでの範囲ドラッグは操作が難しいため、「複数選択」トグルON中は
-  // 自軍ユニットをタップするたびに選択セットへ追加/解除する方式にしている。
+  // 「複数選択」トグルON中は、自軍ユニットをタップするたびに選択セットへ追加/解除できる。
+  // v6.2: それに加えて、何もない場所からドラッグすると矩形範囲内の自軍ユニットを
+  // まとめて選択セットに追加できる(モナークモナーク風)。タップ/ドラッグの判定は
+  // pointerup時点での移動距離(DRAG_SELECT_THRESHOLD_PX)で行う。カメラのドラッグパン機能が
+  // 存在しないため、PC/スマホどちらでも同じジェスチャーで動作する。
 
   // HUDの「複数選択」ボタンでON/OFFを切り替える
   toggleMultiSelectMode() {
     this.multiSelectMode = !this.multiSelectMode;
     window.__jintoriaUI.setMultiSelectActive(this.multiSelectMode);
+    // モード外では進行中のドラッグ範囲選択も無効化する(ボタン連打などで宙に浮いた状態を防ぐ)
+    this.dragSelectStart = null;
+    this.dragSelectActive = false;
+    this.clearDragSelectRect();
     if (!this.multiSelectMode) {
       // モードを抜ける時は選択状態もリセットする
       if (this.paused && this.selectedUnits.size > 0) {
@@ -646,6 +711,43 @@ class MainScene extends Phaser.Scene {
         this.updateMultiSelectLabel();
       }
     }
+  }
+
+  // ドラッグ範囲選択中の矩形を(再)描画する。座標はワールド座標(ズームに影響されないユニット位置と一致させるため)
+  updateDragSelectRect(x0, y0, x1, y1) {
+    const rx = Math.min(x0, x1), ry = Math.min(y0, y1);
+    const rw = Math.abs(x1 - x0), rh = Math.abs(y1 - y0);
+    this.dragSelectGfx.clear();
+    this.dragSelectGfx.fillStyle(0x4dd0e1, 0.15);
+    this.dragSelectGfx.fillRect(rx, ry, rw, rh);
+    this.dragSelectGfx.lineStyle(2, 0x4dd0e1, 0.9);
+    this.dragSelectGfx.strokeRect(rx, ry, rw, rh);
+  }
+
+  // ドラッグ範囲選択の矩形表示を消す
+  clearDragSelectRect() {
+    if (this.dragSelectGfx) this.dragSelectGfx.clear();
+  }
+
+  // ドラッグ範囲選択の確定: 矩形内にいる自軍ユニット(王除く)をまとめて選択セットに追加する
+  // (タップでの追加/解除と同様に「追加」のみ。矩形内に何もいなければ何もしない)
+  finishDragSelect(x0, y0, x1, y1) {
+    const left = Math.min(x0, x1), right = Math.max(x0, x1);
+    const top = Math.min(y0, y1), bottom = Math.max(y0, y1);
+    const hits = this.units.filter(u =>
+      u.alive && u.team === 'player' && !u.isKing &&
+      u.container.x >= left && u.container.x <= right &&
+      u.container.y >= top && u.container.y <= bottom
+    );
+    if (hits.length === 0) return;
+    hits.forEach(u => {
+      if (!this.selectedUnits.has(u)) {
+        this.selectedUnits.add(u);
+        u.selectRing.setVisible(true);
+      }
+    });
+    this.updateMultiSelectLabel();
+    this.setMultiSpotlight();
   }
 
   // 複数選択モード中のユニットタップ: 選択セットへの追加/解除をトグルする
@@ -749,7 +851,10 @@ class MainScene extends Phaser.Scene {
     } else {
       // v4.51: 建築可能なマスにだけ「家を作る」を出す。建てられないマスでは選択肢に出さず、
       // 誤タップで「建てられると思って移動したら建たなかった」を防ぐ
-      const buildable = this.canBuildHouseAt(col, row, source.team);
+      // v6.5: マスに木がある場合、木さえ無ければ建てられるなら「家を作る」も出す(伐採してから建築)
+      const hasTree = this.trees.some(t => t.alive && t.col === col && t.row === row);
+      const buildable = this.canBuildHouseAt(col, row, source.team) ||
+        (hasTree && this.canBuildHouseAt(col, row, source.team, { ignoreTree: true }));
       const labels = buildable ? ['家を作る', '移動', '待機'] : ['移動', '待機'];
       this.openActionSheet(labels, (choice) => {
         // 建築は複数人で指示しても実際に建つのは1軒のみ(canBuildHouseAtが2軒目以降を弾く)
@@ -807,7 +912,11 @@ class MainScene extends Phaser.Scene {
       // 空きマス(自軍の家・王のマスは実行時に弾かれる)
       // v4.51: 建築可能なマスにだけ「家を作る」を出す。建てられないマスでは選択肢に出さず、
       // 誤タップで「建てられると思って移動したら建たなかった」を防ぐ
-      const buildable = this.canBuildHouseAt(col, row, source.team);
+      // v6.5: マスに木がある場合、木さえ無ければ建てられるなら「家を作る」も出す
+      // (選ぶと隣接から木を伐採し、倒れ次第そのまま建築する。finishBuildIfReady参照)
+      const hasTree = this.trees.some(t => t.alive && t.col === col && t.row === row);
+      const buildable = this.canBuildHouseAt(col, row, source.team) ||
+        (hasTree && this.canBuildHouseAt(col, row, source.team, { ignoreTree: true }));
       const labels = buildable ? ['家を作る', '移動', '待機'] : ['移動', '待機'];
       this.openActionSheet(labels, (choice) => {
         if (choice === '家を作る') this.issueCommand(source, col, row, 'build');
@@ -1043,6 +1152,40 @@ class MainScene extends Phaser.Scene {
     }
   }
 
+  // 木を1本生成する(中立の障害物。陣営を持たず、どちらのユニットからも破壊できる)
+  createTree(def) {
+    const pos = gridToPixel(def.col, def.row);
+    const sprite = this.add.image(pos.x, pos.y + 6, 'tree');
+    sprite.setOrigin(0.5, 1); // 足元(地面)基準。他の構造物と同じ接地ルール
+    const baseScale = TREE_TARGET_H / sprite.height;
+    sprite.setScale(baseScale);
+    const depth = isoDepth(def.col, def.row, 2);
+    sprite.setDepth(depth);
+    return { col: def.col, row: def.row, hp: TREE_HP, maxHp: TREE_HP, alive: true, gfx: sprite, baseScale };
+  }
+
+  // 木への攻撃(ユニットが木のマスへ進もうとした時に呼ばれる)。城壁と異なり陣営を問わず誰でも破壊できる
+  hitTree(unit, tree) {
+    const dmg = TIER_DAMAGE[strengthTier(unit.strength)];
+    tree.hp = Math.max(0, tree.hp - dmg);
+    const pos = gridToPixel(tree.col, tree.row);
+    const spark = this.add.star(pos.x, pos.y, 6, 5, 12, 0x9ccc65, 0.9);
+    spark.setDepth(isoDepth(tree.col, tree.row, 9));
+    this.tweens.add({ targets: spark, alpha: 0, scale: 1.4, duration: 250, onComplete: () => spark.destroy() });
+
+    if (tree.hp <= 0) {
+      tree.alive = false;
+      this.tweens.add({
+        targets: tree.gfx,
+        alpha: 0, scale: tree.baseScale * 0.6,
+        duration: 300,
+        onComplete: () => tree.gfx.destroy()
+      });
+    } else {
+      tree.gfx.setScale(tree.baseScale * (tree.hp / tree.maxHp));
+    }
+  }
+
   // 柵タイルを1枚生成する(マップ中央を分ける柵の見た目)
   createFence(def) {
     const pos = gridToPixel(def.col, def.row);
@@ -1166,6 +1309,7 @@ class MainScene extends Phaser.Scene {
           if (this.tileOwners[nr][nc] !== null) continue; // 既に誰かの領土のマスは対象外
           if (this.walls.some(w => w.alive && w.col === nc && w.row === nr)) continue;
           if (this.fences.some(f => !f.built && f.col === nc && f.row === nr)) continue;
+          if (this.trees.some(t => t.alive && t.col === nc && t.row === nr)) continue;
           if (this.houses.some(h => h.alive && h.col === nc && h.row === nr)) continue;
           const enemyOnTile = this.units.some(o => o.alive && o.team !== team && o.col === nc && o.row === nr);
           if (enemyOnTile) continue;
@@ -1200,6 +1344,7 @@ class MainScene extends Phaser.Scene {
         this.units.some(u => u.alive && u.col === nc && u.row === nr) ||
         this.walls.some(w => w.alive && w.col === nc && w.row === nr) ||
         this.fences.some(c => !c.built && c.col === nc && c.row === nr) ||
+        this.trees.some(t => t.alive && t.col === nc && t.row === nr) ||
         this.houses.some(h => h.alive && h.col === nc && h.row === nr);
       if (occupied) continue;
       this.spawnUnitAt(house, nc, nr);
@@ -1256,11 +1401,15 @@ class MainScene extends Phaser.Scene {
   // 建てられる場合は null、建てられない場合はその理由の文字列を返す。
   // (以前は canBuildHouseAt と debugWhyCantBuildHouseAt に同じ条件が二重に書かれており、
   //  片方に条件を足し忘れると「建築不可なのに理由不明」というログが出てしまう状態だった)
-  houseBuildBlockReason(col, row, team) {
+  // opts.ignoreTree: v6.5。木のマスは「伐採してから建てる」指示(finishBuildIfReadyの分岐)を
+  // 出せるようにするため、木の有無を無視して他の条件だけを判定したい場面で使う
+  houseBuildBlockReason(col, row, team, opts) {
+    opts = opts || {};
     if (!inBounds(col, row)) return '範囲外';
     if (this.stoneTiles[row][col]) return '石タイル(城壁跡地・王座)のため不可';
     if (this.fences.some(c => !c.built && c.col === col && c.row === row)) return '柵がある';
     if (this.walls.some(w => w.alive && w.col === col && w.row === row)) return '城壁がある';
+    if (!opts.ignoreTree && this.trees.some(t => t.alive && t.col === col && t.row === row)) return '木がある';
     if (this.units.some(u => u.alive && u.col === col && u.row === row)) return 'ユニットが立っている';
     // 移動中(tween実行中でまだcol/rowが更新されていない)で、まさにこのマスへ向かっているユニットが
     // いる場合も不可。これが無いと、移動完了前に別のユニットがこのマスへ家を建ててしまい、
@@ -1271,8 +1420,8 @@ class MainScene extends Phaser.Scene {
     return null;
   }
 
-  canBuildHouseAt(col, row, team) {
-    return this.houseBuildBlockReason(col, row, team) === null;
+  canBuildHouseAt(col, row, team, opts) {
+    return this.houseBuildBlockReason(col, row, team, opts) === null;
   }
 
   // 【デバッグ用】建築できない理由を文字列で返す(ログ調査用)
@@ -1471,10 +1620,23 @@ class MainScene extends Phaser.Scene {
     }
   }
 
-  // 建築対象マスに家を建てられれば建て、指示を完了して自律行動に戻す
+  // 建築対象マスに家を建てられれば建て、指示を完了して自律行動に戻す。
+  // v6.5: 建築対象マスに木が残っている場合は、隣接した状態で毎tick伐採してから建てる
+  // (「木を選択して壊すと家を作るも選択肢に出したい」という要望への対応)。
+  // tickUnit側がpath.length===0の間このメソッドを毎tick呼び直すので、ここではbuildTargetを
+  // クリアせずに戻ることで「まだ指示は完了していない」状態を維持し、次のtickで再チェックする
   finishBuildIfReady(unit) {
-    if (unit.buildTarget && this.canBuildHouseAt(unit.buildTarget.col, unit.buildTarget.row, unit.team)) {
-      this.buildHouseAdjacent(unit, unit.buildTarget.col, unit.buildTarget.row);
+    if (!unit.buildTarget) { this.revertToAuto(unit, '建築完了'); return; }
+    const { col, row } = unit.buildTarget;
+    const tree = this.trees.find(t => t.alive && t.col === col && t.row === row);
+    if (tree) {
+      this.setBubble(unit, 'attack');
+      this.hitTree(unit, tree);
+      if (unit.state === 'commanded') unit.commandExpireAt = this.tickCount + COMMAND_TIMEOUT_TICKS;
+      return;
+    }
+    if (this.canBuildHouseAt(col, row, unit.team)) {
+      this.buildHouseAdjacent(unit, col, row);
     }
     unit.buildTarget = null;
     this.revertToAuto(unit, '建築完了');
@@ -1705,6 +1867,7 @@ class MainScene extends Phaser.Scene {
       if (!predicate(this.tileOwners[r][c])) return false;
       if (this.fences.some(cl => !cl.built && cl.col === c && cl.row === r)) return false;
       if (this.walls.some(w => w.alive && w.col === c && w.row === r)) return false;
+      if (this.trees.some(t => t.alive && t.col === c && t.row === r)) return false;
       if (this.houses.some(h => h.alive && Math.max(Math.abs(h.col - c), Math.abs(h.row - r)) <= 1)) return false;
       return true;
     };
@@ -1814,6 +1977,16 @@ class MainScene extends Phaser.Scene {
       // 指示中ユニットが城壁を攻撃し続けている間は、実際に1マスも進めていなくても
       // 指示の有効期限が切れないよう更新する(でないと長時間の攻城中に指示が解除され、
       // 自動AIに切り替わって攻撃をやめてしまう不具合になる)
+      if (unit.state === 'commanded') unit.commandExpireAt = this.tickCount + COMMAND_TIMEOUT_TICKS;
+      unit.path.unshift(next);
+      return;
+    }
+
+    // 木:陣営を問わず誰でも攻撃して破壊できる中立の障害物(城壁と同様、経路上にあれば足を止めて攻撃する)
+    const tree = this.trees.find(t => t.alive && t.col === next.col && t.row === next.row);
+    if (tree) {
+      this.setBubble(unit, 'attack');
+      this.hitTree(unit, tree);
       if (unit.state === 'commanded') unit.commandExpireAt = this.tickCount + COMMAND_TIMEOUT_TICKS;
       unit.path.unshift(next);
       return;

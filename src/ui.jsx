@@ -88,7 +88,7 @@
   function HudTop({ settingsOpen, onToggleSettings }) {
     return (
       <div id="hud-top">
-        <span id="version-label">Jintoria v6.1</span>
+        <span id="version-label">Jintoria v6.5</span>
         <button id="settings-toggle" className={settingsOpen ? 'active' : ''} onClick={onToggleSettings}>⚙️ 設定</button>
       </div>
     );
@@ -137,6 +137,9 @@
           onClick={() => window.__jintoriaScene && window.__jintoriaScene.beginMultiCommandMode()}>
           指示を出す(<span id="multi-select-count">{multiSelectCount}</span>)
         </button>
+        {multiSelectActive && (
+          <span id="multi-select-hint">タップ:個別選択 / ドラッグ:範囲選択</span>
+        )}
       </div>
     );
   }
