@@ -513,9 +513,12 @@ class MainScene extends Phaser.Scene {
         // なお、指示中のユニット自身の経路が実際にその敵のマスへ踏み込む場合は、
         // advanceAlongPath側の保険(defenderチェック)で通常通り戦闘になるため、
         // 経路上の敵を完全に無視して素通りできてしまうわけではない。
-        const attackerBlocks = attacker.state === 'commanded' && attacker.goal &&
+        // ただし敵の王は例外: 隣接した時点で常に戦闘を優先する(王の撃破がステージ勝利条件そのものであり、
+        // 「目的地への移動を優先して素通りする」のは絶対に望ましくないため。v6.3で修正: 以前はこの判定が
+        // 王にも適用されてしまい、目的地が王のマスと厳密に一致しない指示だと隣接しても素通りしていた)
+        const attackerBlocks = !defender.isKing && attacker.state === 'commanded' && attacker.goal &&
           !(attacker.goal.col === defender.col && attacker.goal.row === defender.row);
-        const defenderBlocks = defender.state === 'commanded' && defender.goal &&
+        const defenderBlocks = !defender.isKing && defender.state === 'commanded' && defender.goal &&
           !(defender.goal.col === attacker.col && defender.goal.row === attacker.row);
         if (attackerBlocks || defenderBlocks) continue;
 
