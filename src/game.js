@@ -65,6 +65,12 @@ const TIER_DAMAGE = { weak: 10, mid: 20, strong: 50 }; // 1tickごとに対象�
 const TERRITORY_TILE_HP = 30;             // 普通タイル(城壁でも家でもない占領マス)のHP
 const TERRITORY_AUTO_CLAIM_CHANCE = 0.15;  // 家の周囲1マス(斜め含む)が毎tick自動占有される確率
 
+// ===== 木(障害物、v6.4) =====
+// 陣営に属さない中立のオブジェクト。ユニットが隣接マスへ移動しようとすると城壁と同様に
+// 攻撃してHPを削り、破壊すると通行可能になる(どちらの陣営のユニットからも破壊できる)。
+const TREE_HP = 20;       // 木の耐久値。弱ティア(TIER_DAMAGE.weak=10)なら2回、中ティア以上なら1回で倒せる
+const TREE_TARGET_H = 48; // 表示時の目標高さ(px)
+
 
 
 // ユニット初期配置(自軍は左側、敵軍は右側に配置)
@@ -109,6 +115,16 @@ const WALL_DEFS = [
 // 柵(マップ中央の縦の隔たり)。row=4だけ自然に開いた通路。
 // row=2の1マスだけ「橋を架けられる」柵として、破壊ではなく建設で通行可能にできる。
 const FENCE_DEFS = [0, 1, 2, 3, 5, 6, 7, 8].map(row => ({ col: FENCE_COL, row })); // 柵の列。段差の境目(FENCE_COL)と共通
+
+// 木の試験配置(v6.4): 自陣寄り2箇所・敵陣寄り2箇所・中央通路(柵の切れ目row=4)の合流点に1箇所。
+// 王の周囲城壁(col0-2/11-13, row3-5)・柵(col8)・初期ユニット配置とは重ならない位置を選定。
+const TREE_DEFS = [
+  { col: 4, row: 2 },
+  { col: 4, row: 7 },
+  { col: 9, row: 2 },
+  { col: 9, row: 7 },
+  { col: 7, row: 4 }
+];
 
 // ===== グリッド <-> ピクセル変換(アイソメトリック) =====
 // 返す座標は「そのマスのダイヤ(菱形)の中心」。承認済みのプレビュー(jintoria-iso-preview.html)と同じ計算式。
@@ -273,6 +289,7 @@ class MainScene extends Phaser.Scene {
     // ===== 地形・構造物生成 =====
     this.fences = FENCE_DEFS.map(c => this.createFence(c));
     this.walls = WALL_DEFS.map(w => this.createWall(w));
+    this.trees = TREE_DEFS.map(t => this.createTree(t));
     this.houses = [];
 
     // ===== 石タイル(v4.14) =====
@@ -1128,6 +1145,40 @@ class MainScene extends Phaser.Scene {
     }
   }
 
+  // 木を1本生成する(中立の障害物。陣営を持たず、どちらのユニットからも破壊できる)
+  createTree(def) {
+    const pos = gridToPixel(def.col, def.row);
+    const sprite = this.add.image(pos.x, pos.y + 6, 'tree');
+    sprite.setOrigin(0.5, 1); // 足元(地面)基準。他の構造物と同じ接地ルール
+    const baseScale = TREE_TARGET_H / sprite.height;
+    sprite.setScale(baseScale);
+    const depth = isoDepth(def.col, def.row, 2);
+    sprite.setDepth(depth);
+    return { col: def.col, row: def.row, hp: TREE_HP, maxHp: TREE_HP, alive: true, gfx: sprite, baseScale };
+  }
+
+  // 木への攻撃(ユニットが木のマスへ進もうとした時に呼ばれる)。城壁と異なり陣営を問わず誰でも破壊できる
+  hitTree(unit, tree) {
+    const dmg = TIER_DAMAGE[strengthTier(unit.strength)];
+    tree.hp = Math.max(0, tree.hp - dmg);
+    const pos = gridToPixel(tree.col, tree.row);
+    const spark = this.add.star(pos.x, pos.y, 6, 5, 12, 0x9ccc65, 0.9);
+    spark.setDepth(isoDepth(tree.col, tree.row, 9));
+    this.tweens.add({ targets: spark, alpha: 0, scale: 1.4, duration: 250, onComplete: () => spark.destroy() });
+
+    if (tree.hp <= 0) {
+      tree.alive = false;
+      this.tweens.add({
+        targets: tree.gfx,
+        alpha: 0, scale: tree.baseScale * 0.6,
+        duration: 300,
+        onComplete: () => tree.gfx.destroy()
+      });
+    } else {
+      tree.gfx.setScale(tree.baseScale * (tree.hp / tree.maxHp));
+    }
+  }
+
   // 柵タイルを1枚生成する(マップ中央を分ける柵の見た目)
   createFence(def) {
     const pos = gridToPixel(def.col, def.row);
@@ -1251,6 +1302,7 @@ class MainScene extends Phaser.Scene {
           if (this.tileOwners[nr][nc] !== null) continue; // 既に誰かの領土のマスは対象外
           if (this.walls.some(w => w.alive && w.col === nc && w.row === nr)) continue;
           if (this.fences.some(f => !f.built && f.col === nc && f.row === nr)) continue;
+          if (this.trees.some(t => t.alive && t.col === nc && t.row === nr)) continue;
           if (this.houses.some(h => h.alive && h.col === nc && h.row === nr)) continue;
           const enemyOnTile = this.units.some(o => o.alive && o.team !== team && o.col === nc && o.row === nr);
           if (enemyOnTile) continue;
@@ -1285,6 +1337,7 @@ class MainScene extends Phaser.Scene {
         this.units.some(u => u.alive && u.col === nc && u.row === nr) ||
         this.walls.some(w => w.alive && w.col === nc && w.row === nr) ||
         this.fences.some(c => !c.built && c.col === nc && c.row === nr) ||
+        this.trees.some(t => t.alive && t.col === nc && t.row === nr) ||
         this.houses.some(h => h.alive && h.col === nc && h.row === nr);
       if (occupied) continue;
       this.spawnUnitAt(house, nc, nr);
@@ -1346,6 +1399,7 @@ class MainScene extends Phaser.Scene {
     if (this.stoneTiles[row][col]) return '石タイル(城壁跡地・王座)のため不可';
     if (this.fences.some(c => !c.built && c.col === col && c.row === row)) return '柵がある';
     if (this.walls.some(w => w.alive && w.col === col && w.row === row)) return '城壁がある';
+    if (this.trees.some(t => t.alive && t.col === col && t.row === row)) return '木がある';
     if (this.units.some(u => u.alive && u.col === col && u.row === row)) return 'ユニットが立っている';
     // 移動中(tween実行中でまだcol/rowが更新されていない)で、まさにこのマスへ向かっているユニットが
     // いる場合も不可。これが無いと、移動完了前に別のユニットがこのマスへ家を建ててしまい、
@@ -1790,6 +1844,7 @@ class MainScene extends Phaser.Scene {
       if (!predicate(this.tileOwners[r][c])) return false;
       if (this.fences.some(cl => !cl.built && cl.col === c && cl.row === r)) return false;
       if (this.walls.some(w => w.alive && w.col === c && w.row === r)) return false;
+      if (this.trees.some(t => t.alive && t.col === c && t.row === r)) return false;
       if (this.houses.some(h => h.alive && Math.max(Math.abs(h.col - c), Math.abs(h.row - r)) <= 1)) return false;
       return true;
     };
@@ -1899,6 +1954,16 @@ class MainScene extends Phaser.Scene {
       // 指示中ユニットが城壁を攻撃し続けている間は、実際に1マスも進めていなくても
       // 指示の有効期限が切れないよう更新する(でないと長時間の攻城中に指示が解除され、
       // 自動AIに切り替わって攻撃をやめてしまう不具合になる)
+      if (unit.state === 'commanded') unit.commandExpireAt = this.tickCount + COMMAND_TIMEOUT_TICKS;
+      unit.path.unshift(next);
+      return;
+    }
+
+    // 木:陣営を問わず誰でも攻撃して破壊できる中立の障害物(城壁と同様、経路上にあれば足を止めて攻撃する)
+    const tree = this.trees.find(t => t.alive && t.col === next.col && t.row === next.row);
+    if (tree) {
+      this.setBubble(unit, 'attack');
+      this.hitTree(unit, tree);
       if (unit.state === 'commanded') unit.commandExpireAt = this.tickCount + COMMAND_TIMEOUT_TICKS;
       unit.path.unshift(next);
       return;
