@@ -851,7 +851,10 @@ class MainScene extends Phaser.Scene {
     } else {
       // v4.51: 建築可能なマスにだけ「家を作る」を出す。建てられないマスでは選択肢に出さず、
       // 誤タップで「建てられると思って移動したら建たなかった」を防ぐ
-      const buildable = this.canBuildHouseAt(col, row, source.team);
+      // v6.5: マスに木がある場合、木さえ無ければ建てられるなら「家を作る」も出す(伐採してから建築)
+      const hasTree = this.trees.some(t => t.alive && t.col === col && t.row === row);
+      const buildable = this.canBuildHouseAt(col, row, source.team) ||
+        (hasTree && this.canBuildHouseAt(col, row, source.team, { ignoreTree: true }));
       const labels = buildable ? ['家を作る', '移動', '待機'] : ['移動', '待機'];
       this.openActionSheet(labels, (choice) => {
         // 建築は複数人で指示しても実際に建つのは1軒のみ(canBuildHouseAtが2軒目以降を弾く)
@@ -909,7 +912,11 @@ class MainScene extends Phaser.Scene {
       // 空きマス(自軍の家・王のマスは実行時に弾かれる)
       // v4.51: 建築可能なマスにだけ「家を作る」を出す。建てられないマスでは選択肢に出さず、
       // 誤タップで「建てられると思って移動したら建たなかった」を防ぐ
-      const buildable = this.canBuildHouseAt(col, row, source.team);
+      // v6.5: マスに木がある場合、木さえ無ければ建てられるなら「家を作る」も出す
+      // (選ぶと隣接から木を伐採し、倒れ次第そのまま建築する。finishBuildIfReady参照)
+      const hasTree = this.trees.some(t => t.alive && t.col === col && t.row === row);
+      const buildable = this.canBuildHouseAt(col, row, source.team) ||
+        (hasTree && this.canBuildHouseAt(col, row, source.team, { ignoreTree: true }));
       const labels = buildable ? ['家を作る', '移動', '待機'] : ['移動', '待機'];
       this.openActionSheet(labels, (choice) => {
         if (choice === '家を作る') this.issueCommand(source, col, row, 'build');
@@ -1394,12 +1401,15 @@ class MainScene extends Phaser.Scene {
   // 建てられる場合は null、建てられない場合はその理由の文字列を返す。
   // (以前は canBuildHouseAt と debugWhyCantBuildHouseAt に同じ条件が二重に書かれており、
   //  片方に条件を足し忘れると「建築不可なのに理由不明」というログが出てしまう状態だった)
-  houseBuildBlockReason(col, row, team) {
+  // opts.ignoreTree: v6.5。木のマスは「伐採してから建てる」指示(finishBuildIfReadyの分岐)を
+  // 出せるようにするため、木の有無を無視して他の条件だけを判定したい場面で使う
+  houseBuildBlockReason(col, row, team, opts) {
+    opts = opts || {};
     if (!inBounds(col, row)) return '範囲外';
     if (this.stoneTiles[row][col]) return '石タイル(城壁跡地・王座)のため不可';
     if (this.fences.some(c => !c.built && c.col === col && c.row === row)) return '柵がある';
     if (this.walls.some(w => w.alive && w.col === col && w.row === row)) return '城壁がある';
-    if (this.trees.some(t => t.alive && t.col === col && t.row === row)) return '木がある';
+    if (!opts.ignoreTree && this.trees.some(t => t.alive && t.col === col && t.row === row)) return '木がある';
     if (this.units.some(u => u.alive && u.col === col && u.row === row)) return 'ユニットが立っている';
     // 移動中(tween実行中でまだcol/rowが更新されていない)で、まさにこのマスへ向かっているユニットが
     // いる場合も不可。これが無いと、移動完了前に別のユニットがこのマスへ家を建ててしまい、
@@ -1410,8 +1420,8 @@ class MainScene extends Phaser.Scene {
     return null;
   }
 
-  canBuildHouseAt(col, row, team) {
-    return this.houseBuildBlockReason(col, row, team) === null;
+  canBuildHouseAt(col, row, team, opts) {
+    return this.houseBuildBlockReason(col, row, team, opts) === null;
   }
 
   // 【デバッグ用】建築できない理由を文字列で返す(ログ調査用)
@@ -1610,10 +1620,23 @@ class MainScene extends Phaser.Scene {
     }
   }
 
-  // 建築対象マスに家を建てられれば建て、指示を完了して自律行動に戻す
+  // 建築対象マスに家を建てられれば建て、指示を完了して自律行動に戻す。
+  // v6.5: 建築対象マスに木が残っている場合は、隣接した状態で毎tick伐採してから建てる
+  // (「木を選択して壊すと家を作るも選択肢に出したい」という要望への対応)。
+  // tickUnit側がpath.length===0の間このメソッドを毎tick呼び直すので、ここではbuildTargetを
+  // クリアせずに戻ることで「まだ指示は完了していない」状態を維持し、次のtickで再チェックする
   finishBuildIfReady(unit) {
-    if (unit.buildTarget && this.canBuildHouseAt(unit.buildTarget.col, unit.buildTarget.row, unit.team)) {
-      this.buildHouseAdjacent(unit, unit.buildTarget.col, unit.buildTarget.row);
+    if (!unit.buildTarget) { this.revertToAuto(unit, '建築完了'); return; }
+    const { col, row } = unit.buildTarget;
+    const tree = this.trees.find(t => t.alive && t.col === col && t.row === row);
+    if (tree) {
+      this.setBubble(unit, 'attack');
+      this.hitTree(unit, tree);
+      if (unit.state === 'commanded') unit.commandExpireAt = this.tickCount + COMMAND_TIMEOUT_TICKS;
+      return;
+    }
+    if (this.canBuildHouseAt(col, row, unit.team)) {
+      this.buildHouseAdjacent(unit, col, row);
     }
     unit.buildTarget = null;
     this.revertToAuto(unit, '建築完了');
