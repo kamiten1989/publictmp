@@ -345,20 +345,19 @@
   }
   #speed-controls {
     display: flex;
-    gap: 4px;
+    align-items: center;
+    gap: 8px;
   }
-  #speed-controls button {
-    background: rgba(255,255,255,0.08);
-    color: #cfd8dc;
-    border: 1px solid #546e7a;
-    border-radius: 6px;
+  #speed-gauge-label {
     font-size: 11px;
-    padding: 3px 8px;
+    color: #90caf9;
+    min-width: 52px;
+    flex-shrink: 0;
   }
-  #speed-controls button.active {
-    background: #1565c0;
-    color: #fff;
-    border-color: #90caf9;
+  #speed-gauge {
+    flex: 1;
+    min-width: 100px;
+    accent-color: #1565c0;
   }
   #zoom-controls {
     display: flex;
@@ -475,7 +474,7 @@
     multiSelectActive: false,
     multiSelectCount: 0,
     running: false,
-    speedMode: 'fast',
+    speedValue: 60,
     zoomMode: 'in',
     victoryCharActive: true,
     hud: {
@@ -500,7 +499,7 @@
   function setMultiSelectActive(active) { store.setState({ multiSelectActive: !!active }); }
   function setMultiSelectCount(count) { store.setState({ multiSelectCount: count }); }
   function setRunState(running) { store.setState({ running: !!running }); }
-  function setSpeedMode(mode) { store.setState({ speedMode: mode }); }
+  function setSpeedValue(value) { store.setState({ speedValue: value }); }
   function setZoomMode(mode) { store.setState({ zoomMode: mode }); }
   function setVictoryCharActive(active) { store.setState({ victoryCharActive: !!active }); }
   function showActionSheet(labels, onPick) { store.setState({ actionSheet: { labels, onPick } }); }
@@ -512,7 +511,7 @@
   window.__jintoriaUI = {
     setHud, setSelectedLabel, setPauseBannerVisible,
     setMultiSelectActive, setMultiSelectCount, setRunState,
-    setSpeedMode, setZoomMode, setVictoryCharActive,
+    setSpeedValue, setZoomMode, setVictoryCharActive,
     showActionSheet, closeActionSheet,
     showResultBanner, showVictoryOverlay, hideVictoryOverlay
   };
@@ -535,7 +534,7 @@
   function HudTop({ settingsOpen, onToggleSettings }) {
     return (
       <div id="hud-top">
-        <span id="version-label">Jintoria v6.0</span>
+        <span id="version-label">Jintoria v6.1</span>
         <button id="settings-toggle" className={settingsOpen ? 'active' : ''} onClick={onToggleSettings}>⚙️ 設定</button>
       </div>
     );
@@ -614,19 +613,33 @@
     );
   }
 
-  const SPEED_LABELS = { slow: 'ゆっくり', normal: 'ふつう', fast: '速い' };
   const ZOOM_LABELS = { in: '拡大', normal: 'ふつう', out: '縮小' };
 
+  // 速度ゲージの値(0〜100)を見た目のラベルに変換する(モナークモナーク風の無段階ゲージ)
+  function speedValueLabel(v) {
+    if (v <= 10) return '超ゆっくり';
+    if (v <= 35) return 'ゆっくり';
+    if (v <= 65) return 'ふつう';
+    if (v <= 90) return '速い';
+    return '超速く';
+  }
+
+  function SpeedGauge() {
+    const { speedValue } = useStoreState();
+    return (
+      <div id="speed-controls">
+        <span id="speed-gauge-label">{speedValueLabel(speedValue)}</span>
+        <input id="speed-gauge" type="range" min="0" max="100" value={speedValue}
+          onChange={(e) => window.__jintoriaScene && window.__jintoriaScene.setSpeedValue(Number(e.target.value))} />
+      </div>
+    );
+  }
+
   function SettingsPanel({ open }) {
-    const { speedMode, zoomMode, victoryCharActive } = useStoreState();
+    const { zoomMode, victoryCharActive } = useStoreState();
     return (
       <div id="settings-panel" className={open ? 'open' : ''}>
-        <div id="speed-controls">
-          {['slow', 'normal', 'fast'].map((m) => (
-            <button key={m} id={'speed-' + m} className={speedMode === m ? 'active' : ''}
-              onClick={() => window.__jintoriaScene && window.__jintoriaScene.setSpeed(m)}>{SPEED_LABELS[m]}</button>
-          ))}
-        </div>
+        <SpeedGauge />
         <div id="zoom-controls">
           {['in', 'normal', 'out'].map((m) => (
             <button key={m} id={'zoom-' + m} className={zoomMode === m ? 'active' : ''}
@@ -827,7 +840,13 @@ const ISO_FENCE_DEPTH = 18;   // 柵ブロックの厚み(同上)
 const ISO_ORIGIN_X = (GRID_ROWS - 1) * (ISO_W / 2) + 48; // 盤面全体が画面内に収まるよう原点をずらす
 const ISO_ORIGIN_Y = 150; // 柵・城壁・王冠など背の高いものの描画余白を上に確保
 const AUTO_MOVE_INTERVAL_BASE = 1400; // 自律移動の間隔(ms)。基準値(ふつう速度)
-const SPEED_PRESETS = { slow: 2.0, normal: 1.0, fast: 0.5 }; // 倍速設定(値が小さいほど速い)
+// v6.1: モナークモナーク風の無段階速度ゲージ。0(超ゆっくり)〜100(超速く)のスライダー値を
+// 指数補間で倍率に変換する(値が小さいほど遅い/大きいほど速い)。
+const SPEED_VALUE_MIN = 0;
+const SPEED_VALUE_MAX = 100;
+const SPEED_FACTOR_AT_MIN = 2.5;  // スライダー0(超ゆっくり)での倍率
+const SPEED_FACTOR_AT_MAX = 0.15; // スライダー100(超速く)での倍率
+const SPEED_DEFAULT_VALUE = 60;   // 従来のデフォルト('fast'=0.5倍相当)に近い初期位置
 const ZOOM_PRESETS = { out: 0.75, normal: 1.0, in: 1.4 }; // カメラズーム倍率
 const COMMAND_TIMEOUT_TICKS = 10; // プレイヤー指示の有効期間(実際に処理されたtick数。v3.20で実時間msから変更。
 const STEP_TOWARD_WAIT_TICKS = 3; // 自動AI(stepToward)が直進方向をふさがれた時、迂回を試みるまで待つtick数
@@ -1059,8 +1078,8 @@ class MainScene extends Phaser.Scene {
   buildWorld() {
     this.gameOver = false;
     this.spawnCounter = 0;
-    this.speedMode = 'fast';
-    this.autoMoveInterval = AUTO_MOVE_INTERVAL_BASE * SPEED_PRESETS.fast;
+    this.speedValue = SPEED_DEFAULT_VALUE;
+    this.autoMoveInterval = AUTO_MOVE_INTERVAL_BASE * this.speedFactorFromValue(this.speedValue);
     this.zoomMode = 'in';
     this.cameras.main.setZoom(ZOOM_PRESETS.in);
     this.showVictoryChar = true; // v4.46: 勝利キャラ表示トグルのデフォルト値(ON)
@@ -1193,13 +1212,20 @@ class MainScene extends Phaser.Scene {
     window.__jintoriaUI.setRunState(this.gameRunning);
   }
 
-  // 速度モードを切り替える('slow' | 'normal' | 'fast')。ふつうがデフォルト
-  setSpeed(mode) {
-    if (!SPEED_PRESETS[mode]) return;
-    this.speedMode = mode;
-    this.autoMoveInterval = AUTO_MOVE_INTERVAL_BASE * SPEED_PRESETS[mode];
+  // スライダー値(0=超ゆっくり〜100=超速く)を実際の間隔倍率に変換する(指数補間)
+  speedFactorFromValue(value) {
+    const v = Math.max(SPEED_VALUE_MIN, Math.min(SPEED_VALUE_MAX, value));
+    const t = (v - SPEED_VALUE_MIN) / (SPEED_VALUE_MAX - SPEED_VALUE_MIN);
+    return SPEED_FACTOR_AT_MIN * Math.pow(SPEED_FACTOR_AT_MAX / SPEED_FACTOR_AT_MIN, t);
+  }
+
+  // 速度ゲージの値(0〜100)を無段階に設定する(v6.1: モナークモナーク風のドラッグ/クリック速度ゲージ)
+  setSpeedValue(value) {
+    const v = Math.round(Math.max(SPEED_VALUE_MIN, Math.min(SPEED_VALUE_MAX, value)));
+    this.speedValue = v;
+    this.autoMoveInterval = AUTO_MOVE_INTERVAL_BASE * this.speedFactorFromValue(v);
     this.startAutoTimer();
-    window.__jintoriaUI.setSpeedMode(mode);
+    window.__jintoriaUI.setSpeedValue(v);
   }
 
   // ズームモードを切り替える('out' | 'normal' | 'in')。ふつうがデフォルト

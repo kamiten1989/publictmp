@@ -28,7 +28,7 @@
     multiSelectActive: false,
     multiSelectCount: 0,
     running: false,
-    speedMode: 'fast',
+    speedValue: 60,
     zoomMode: 'in',
     victoryCharActive: true,
     hud: {
@@ -53,7 +53,7 @@
   function setMultiSelectActive(active) { store.setState({ multiSelectActive: !!active }); }
   function setMultiSelectCount(count) { store.setState({ multiSelectCount: count }); }
   function setRunState(running) { store.setState({ running: !!running }); }
-  function setSpeedMode(mode) { store.setState({ speedMode: mode }); }
+  function setSpeedValue(value) { store.setState({ speedValue: value }); }
   function setZoomMode(mode) { store.setState({ zoomMode: mode }); }
   function setVictoryCharActive(active) { store.setState({ victoryCharActive: !!active }); }
   function showActionSheet(labels, onPick) { store.setState({ actionSheet: { labels, onPick } }); }
@@ -65,7 +65,7 @@
   window.__jintoriaUI = {
     setHud, setSelectedLabel, setPauseBannerVisible,
     setMultiSelectActive, setMultiSelectCount, setRunState,
-    setSpeedMode, setZoomMode, setVictoryCharActive,
+    setSpeedValue, setZoomMode, setVictoryCharActive,
     showActionSheet, closeActionSheet,
     showResultBanner, showVictoryOverlay, hideVictoryOverlay
   };
@@ -88,7 +88,7 @@
   function HudTop({ settingsOpen, onToggleSettings }) {
     return (
       <div id="hud-top">
-        <span id="version-label">Jintoria v6.0</span>
+        <span id="version-label">Jintoria v6.1</span>
         <button id="settings-toggle" className={settingsOpen ? 'active' : ''} onClick={onToggleSettings}>⚙️ 設定</button>
       </div>
     );
@@ -167,19 +167,33 @@
     );
   }
 
-  const SPEED_LABELS = { slow: 'ゆっくり', normal: 'ふつう', fast: '速い' };
   const ZOOM_LABELS = { in: '拡大', normal: 'ふつう', out: '縮小' };
 
+  // 速度ゲージの値(0〜100)を見た目のラベルに変換する(モナークモナーク風の無段階ゲージ)
+  function speedValueLabel(v) {
+    if (v <= 10) return '超ゆっくり';
+    if (v <= 35) return 'ゆっくり';
+    if (v <= 65) return 'ふつう';
+    if (v <= 90) return '速い';
+    return '超速く';
+  }
+
+  function SpeedGauge() {
+    const { speedValue } = useStoreState();
+    return (
+      <div id="speed-controls">
+        <span id="speed-gauge-label">{speedValueLabel(speedValue)}</span>
+        <input id="speed-gauge" type="range" min="0" max="100" value={speedValue}
+          onChange={(e) => window.__jintoriaScene && window.__jintoriaScene.setSpeedValue(Number(e.target.value))} />
+      </div>
+    );
+  }
+
   function SettingsPanel({ open }) {
-    const { speedMode, zoomMode, victoryCharActive } = useStoreState();
+    const { zoomMode, victoryCharActive } = useStoreState();
     return (
       <div id="settings-panel" className={open ? 'open' : ''}>
-        <div id="speed-controls">
-          {['slow', 'normal', 'fast'].map((m) => (
-            <button key={m} id={'speed-' + m} className={speedMode === m ? 'active' : ''}
-              onClick={() => window.__jintoriaScene && window.__jintoriaScene.setSpeed(m)}>{SPEED_LABELS[m]}</button>
-          ))}
-        </div>
+        <SpeedGauge />
         <div id="zoom-controls">
           {['in', 'normal', 'out'].map((m) => (
             <button key={m} id={'zoom-' + m} className={zoomMode === m ? 'active' : ''}
