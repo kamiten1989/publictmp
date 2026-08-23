@@ -88,7 +88,7 @@
   function HudTop({ settingsOpen, onToggleSettings }) {
     return (
       <div id="hud-top">
-        <span id="version-label">Jintoria v5.2</span>
+        <span id="version-label">Jintoria v6.0</span>
         <button id="settings-toggle" className={settingsOpen ? 'active' : ''} onClick={onToggleSettings}>⚙️ 設定</button>
       </div>
     );
