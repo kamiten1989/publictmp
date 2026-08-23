@@ -345,20 +345,19 @@
   }
   #speed-controls {
     display: flex;
-    gap: 4px;
+    align-items: center;
+    gap: 8px;
   }
-  #speed-controls button {
-    background: rgba(255,255,255,0.08);
-    color: #cfd8dc;
-    border: 1px solid #546e7a;
-    border-radius: 6px;
+  #speed-gauge-label {
     font-size: 11px;
-    padding: 3px 8px;
+    color: #90caf9;
+    min-width: 52px;
+    flex-shrink: 0;
   }
-  #speed-controls button.active {
-    background: #1565c0;
-    color: #fff;
-    border-color: #90caf9;
+  #speed-gauge {
+    flex: 1;
+    min-width: 100px;
+    accent-color: #1565c0;
   }
   #zoom-controls {
     display: flex;

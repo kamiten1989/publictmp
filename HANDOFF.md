@@ -1,10 +1,32 @@
-# Jintoria 開発引き継ぎメモ(2026-08-19時点)
+# Jintoria 開発引き継ぎメモ(2026-08-23時点)
 
 ## 現在のバージョン
-**v5.2**
-デプロイ先: https://kamiten1989.github.io/publictmp/jintoria.html(v5.2がまだpush/コミットされていない可能性あり。必ずバージョン表示で確認)
+**v6.1**
+デプロイ先: https://kamiten1989.github.io/publictmp/jintoria.html(必ずバージョン表示で確認。ブラウザキャッシュに注意し`?v=`付与や強制リロードを案内すること)
 
-## 直近セッションでやったこと(HUD/UIをReact化。案A: Phaser盤面は無改修、周辺UIだけ本格的にReact管理へ移行)
+※このメモはしばらくv5.2止まりで更新されていなかった(実コードはv6.0まで進んでいた)。以後、毎セッション末に必ずここを更新すること。
+
+## 今回セッションでやったこと(速度操作を「モナークモナーク」風の無段階ゲージ化)
+ユーザーからの依頼: ゲーム仕様をファルコムの「モナークモナーク」(陣取り型リアルタイムSLG)に寄せたい、まずUI/操作フローから。Web検索で調べた結果(公式サイト・攻略サイトへの直接アクセスは本環境のegressプロキシでブロックされたため検索結果の要約ベース)、モナークモナークには速度をクリック/ドラッグで無段階(超ゆっくり〜超速い)に調整できるゲージがあることが分かり、まずここから着手することにした。
+
+### 変更内容
+- `src/game.js`:
+  - 従来の3段階`SPEED_PRESETS = { slow: 2.0, normal: 1.0, fast: 0.5 }` + `setSpeed(mode)`を廃止。
+  - 0(超ゆっくり)〜100(超速く)のスライダー値を指数補間で倍率に変換する`speedFactorFromValue(value)`と、それを適用する`setSpeedValue(value)`を追加(`SPEED_FACTOR_AT_MIN=2.5`〜`SPEED_FACTOR_AT_MAX=0.15`、デフォルト`SPEED_DEFAULT_VALUE=60`で旧デフォルト`fast`相当に近似)。
+  - `this.speedMode`→`this.speedValue`に置き換え。
+- `src/ui.jsx`:
+  - `SettingsPanel`内の3ボタン(`#speed-slow/normal/fast`)を`<input type="range">`1本(`#speed-gauge`)+ラベル(`#speed-gauge-label`、5段階の日本語ラベルに丸める`speedValueLabel()`)の`SpeedGauge`コンポーネントに置き換え。
+  - `setSpeedMode`→`setSpeedValue`、ストアの`speedMode`→`speedValue`に変更。
+  - バージョン表示 v6.0 → **v6.1**。
+- `src/shell.html`: `#speed-controls`のCSSをボタン列からスライダー用(`#speed-gauge`, `#speed-gauge-label`)に置き換え。
+
+### 検証状況(重要: 今回はブラウザ実機/ヘッドレス確認が「できなかった」)
+- `node --check src/game.js`: OK。
+- `bash build.sh`: OK(`jintoria.html`再生成済み)。
+- **ブラウザでの動作確認は未実施**: 本セッションの実行環境ではネットワークegressプロキシがCDN(`cdnjs.cloudflare.com`, `unpkg.com`)への接続を`ERR_TUNNEL_CONNECTION_FAILED`/403でブロックしており、`shell.html`がPhaser/React/ReactDOM/Babelを読み込めず、Playwright(ヘッドレスChromium)でも`Phaser is not defined`で落ちて検証できなかった。速度カーブの数式(`speedFactorFromValue`相当のロジック)はNode上で単体で計算し、0→3500ms(超ゆっくり)、60→647ms(旧fast相当に近い)、100→210ms(超速く)と単調減少になることのみ確認済み。
+- 次回以降、CDNへ到達できる環境(ローカルPC等)で必ず実機/ヘッドレス確認を行うこと: 設定パネルを開き、ゲージをドラッグ/クリックして`speed-gauge-label`の表示切替とtick速度の体感変化を確認する。
+
+## 前回セッションでやったこと(HUD/UIをReact化。案A: Phaser盤面は無改修、周辺UIだけ本格的にReact管理へ移行)
 ユーザーからの依頼: 「jintoriaをReactに移行したらどのくらいの修正量になるか」の見積もり → Phaserの盤面(戦闘/AI/isometric描画/tickループ)はそのまま残し、HUD・アクションシート・各種バナー・デバッグログパネルなどの周辺DOM UIだけをReactで宣言的に管理する「案A」を採用し実装した。
 
 ### アーキテクチャ
@@ -64,6 +86,7 @@
 4. GitHub Pages (`kamiten1989/publictmp`)へのpush/コミットはユーザー側作業。反映確認は「ページ内バージョン表示」で行う(ブラウザキャッシュに注意、`?v=` 付与や強制リロードを案内すること)
 
 ## 未対応・持ち越し事項
+-2. **速度ゲージ(v6.1)のブラウザ実機確認**、未実施(本セッションの実行環境ではCDN egressがブロックされておりPhaser/React自体を読み込めなかったため)。ゲージのドラッグ/クリック操作感、ラベル切替、tick速度の体感変化を確認すること。またこれは「モナークモナークにUI/操作フローを寄せる」取り組みの第一歩に過ぎず、ALL/INIT(新兵への初期命令)やドラッグによる範囲選択などが未着手として残っている(ユーザーと合意した進め方はセッション冒頭のやり取り参照)。
 -1. **今回のReact化のブラウザ実機確認**、未実施(ヘッドレスChrome+CDPでの機能検証は済んでいるが、PC/スマホの実ブラウザでの目視確認・勝敗成立時のオーバーレイ確認は未実施)
 0. **左クリック修正(v5.1)のブラウザ実機確認**、未実施(PC/スマホ両方でクリック・タップ・右クリックの動作確認が望ましい)
 1. **開始ボタンアニメーションのブラウザ実機確認**、未実施(ヘッドレスChromeでの見た目チェックが望ましい)

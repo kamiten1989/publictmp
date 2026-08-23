@@ -14,7 +14,13 @@ const ISO_FENCE_DEPTH = 18;   // 柵ブロックの厚み(同上)
 const ISO_ORIGIN_X = (GRID_ROWS - 1) * (ISO_W / 2) + 48; // 盤面全体が画面内に収まるよう原点をずらす
 const ISO_ORIGIN_Y = 150; // 柵・城壁・王冠など背の高いものの描画余白を上に確保
 const AUTO_MOVE_INTERVAL_BASE = 1400; // 自律移動の間隔(ms)。基準値(ふつう速度)
-const SPEED_PRESETS = { slow: 2.0, normal: 1.0, fast: 0.5 }; // 倍速設定(値が小さいほど速い)
+// v6.1: モナークモナーク風の無段階速度ゲージ。0(超ゆっくり)〜100(超速く)のスライダー値を
+// 指数補間で倍率に変換する(値が小さいほど遅い/大きいほど速い)。
+const SPEED_VALUE_MIN = 0;
+const SPEED_VALUE_MAX = 100;
+const SPEED_FACTOR_AT_MIN = 2.5;  // スライダー0(超ゆっくり)での倍率
+const SPEED_FACTOR_AT_MAX = 0.15; // スライダー100(超速く)での倍率
+const SPEED_DEFAULT_VALUE = 60;   // 従来のデフォルト('fast'=0.5倍相当)に近い初期位置
 const ZOOM_PRESETS = { out: 0.75, normal: 1.0, in: 1.4 }; // カメラズーム倍率
 const COMMAND_TIMEOUT_TICKS = 10; // プレイヤー指示の有効期間(実際に処理されたtick数。v3.20で実時間msから変更。
 const STEP_TOWARD_WAIT_TICKS = 3; // 自動AI(stepToward)が直進方向をふさがれた時、迂回を試みるまで待つtick数
@@ -246,8 +252,8 @@ class MainScene extends Phaser.Scene {
   buildWorld() {
     this.gameOver = false;
     this.spawnCounter = 0;
-    this.speedMode = 'fast';
-    this.autoMoveInterval = AUTO_MOVE_INTERVAL_BASE * SPEED_PRESETS.fast;
+    this.speedValue = SPEED_DEFAULT_VALUE;
+    this.autoMoveInterval = AUTO_MOVE_INTERVAL_BASE * this.speedFactorFromValue(this.speedValue);
     this.zoomMode = 'in';
     this.cameras.main.setZoom(ZOOM_PRESETS.in);
     this.showVictoryChar = true; // v4.46: 勝利キャラ表示トグルのデフォルト値(ON)
@@ -380,13 +386,20 @@ class MainScene extends Phaser.Scene {
     window.__jintoriaUI.setRunState(this.gameRunning);
   }
 
-  // 速度モードを切り替える('slow' | 'normal' | 'fast')。ふつうがデフォルト
-  setSpeed(mode) {
-    if (!SPEED_PRESETS[mode]) return;
-    this.speedMode = mode;
-    this.autoMoveInterval = AUTO_MOVE_INTERVAL_BASE * SPEED_PRESETS[mode];
+  // スライダー値(0=超ゆっくり〜100=超速く)を実際の間隔倍率に変換する(指数補間)
+  speedFactorFromValue(value) {
+    const v = Math.max(SPEED_VALUE_MIN, Math.min(SPEED_VALUE_MAX, value));
+    const t = (v - SPEED_VALUE_MIN) / (SPEED_VALUE_MAX - SPEED_VALUE_MIN);
+    return SPEED_FACTOR_AT_MIN * Math.pow(SPEED_FACTOR_AT_MAX / SPEED_FACTOR_AT_MIN, t);
+  }
+
+  // 速度ゲージの値(0〜100)を無段階に設定する(v6.1: モナークモナーク風のドラッグ/クリック速度ゲージ)
+  setSpeedValue(value) {
+    const v = Math.round(Math.max(SPEED_VALUE_MIN, Math.min(SPEED_VALUE_MAX, value)));
+    this.speedValue = v;
+    this.autoMoveInterval = AUTO_MOVE_INTERVAL_BASE * this.speedFactorFromValue(v);
     this.startAutoTimer();
-    window.__jintoriaUI.setSpeedMode(mode);
+    window.__jintoriaUI.setSpeedValue(v);
   }
 
   // ズームモードを切り替える('out' | 'normal' | 'in')。ふつうがデフォルト
