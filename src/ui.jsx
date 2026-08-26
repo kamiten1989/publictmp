@@ -88,7 +88,7 @@
   function HudTop({ settingsOpen, onToggleSettings }) {
     return (
       <div id="hud-top">
-        <span id="version-label">Jintoria v6.5</span>
+        <span id="version-label">Jintoria v6.6</span>
         <button id="settings-toggle" className={settingsOpen ? 'active' : ''} onClick={onToggleSettings}>⚙️ 設定</button>
       </div>
     );
@@ -203,6 +203,8 @@
               onClick={() => window.__jintoriaScene && window.__jintoriaScene.setZoomMode(m)}>{ZOOM_LABELS[m]}</button>
           ))}
         </div>
+        <button id="recenter-camera-btn"
+          onClick={() => window.__jintoriaScene && window.__jintoriaScene.recenterCamera()}>盤面全体に戻す</button>
         <button id="victory-char-toggle" className={victoryCharActive ? 'active' : ''}
           onClick={() => window.__jintoriaScene && window.__jintoriaScene.toggleVictoryCharSetting()}>勝利キャラ表示</button>
       </div>

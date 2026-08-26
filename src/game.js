@@ -154,6 +154,22 @@ function pixelToGrid(x, y) {
   }
   return flat;
 }
+// ===== カメラ移動範囲(v6.6: スクロール操作対応) =====
+// 盤面の四隅のマスから実際のワールド座標のバウンディングボックスを求め、城壁・王冠・攻撃演出などが
+// 画面外に切れないよう余白を足す。GRID_COLS/GRID_ROWSを変えても定数の手直し無しに追従する。
+const WORLD_BOUNDS_MARGIN = 200;
+function computeWorldBounds() {
+  const corners = [
+    gridToPixel(0, 0), gridToPixel(GRID_COLS - 1, 0),
+    gridToPixel(0, GRID_ROWS - 1), gridToPixel(GRID_COLS - 1, GRID_ROWS - 1)
+  ];
+  const xs = corners.map(p => p.x), ys = corners.map(p => p.y);
+  const minX = Math.min(...xs) - ISO_W / 2 - WORLD_BOUNDS_MARGIN;
+  const maxX = Math.max(...xs) + ISO_W / 2 + WORLD_BOUNDS_MARGIN;
+  const minY = Math.min(...ys) - ISO_H / 2 - WORLD_BOUNDS_MARGIN;
+  const maxY = Math.max(...ys) + ISO_H / 2 + WORLD_BOUNDS_MARGIN;
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
 // 色を明るく/暗くする(アイソメブロックの陰影づけ用)
 function shadeColor(color, amt) {
   let r = (color >> 16) + amt, g = ((color >> 8) & 0xff) + amt, b = (color & 0xff) + amt;
@@ -241,6 +257,7 @@ class MainScene extends Phaser.Scene {
 
   // スプライト画像(base64)を全て読み込み終えてから本体のcreateを実行する
   create() {
+    this.input.addPointer(1); // v6.6: 2本指ドラッグ(カメラのパン)を検知できるようにpointer2を有効化する
     const spriteKeys = Object.keys(SPRITE_DATA);
     let loaded = 0;
     let started = false;
@@ -274,6 +291,12 @@ class MainScene extends Phaser.Scene {
     this.zoomMode = 'in';
     this.cameras.main.setZoom(ZOOM_PRESETS.in);
     this.showVictoryChar = true; // v4.46: 勝利キャラ表示トグルのデフォルト値(ON)
+
+    // ===== カメラ移動範囲・初期位置(v6.6: スクロール操作対応) =====
+    const worldBounds = computeWorldBounds();
+    this.cameras.main.setBounds(worldBounds.x, worldBounds.y, worldBounds.width, worldBounds.height);
+    this.worldCenter = { x: worldBounds.x + worldBounds.width / 2, y: worldBounds.y + worldBounds.height / 2 };
+    this.cameras.main.centerOn(this.worldCenter.x, this.worldCenter.y);
 
     this.graphics = this.add.graphics();
     this.drawGrid();
@@ -310,6 +333,12 @@ class MainScene extends Phaser.Scene {
     this.dragSelectActive = false;  // 実際にドラッグ(閾値以上の移動)とみなされたかどうか
     this.dragSelectGfx = this.add.graphics(); // ドラッグ中の矩形を描画する専用レイヤー
     this.dragSelectGfx.setDepth(9000);
+    // ===== カメラのパン操作(v6.6)。3種類の入力を用途ごとに独立して扱う =====
+    this.panLastMid = null;         // 2本指ドラッグの直前の中点(スクリーン座標)。両モード共通で最優先
+    this.mousePanActive = false;    // PCの右クリックドラッグ中かどうか
+    this.mousePanLast = null;       // 右クリックドラッグの直前の座標(スクリーン座標)
+    this.emptyDragPanActive = false; // 単体選択モードで何もない場所からドラッグ中かどうか
+    this.emptyDragPanLast = null;    // そのドラッグの直前の座標(スクリーン座標)
     this.paused = false;
     this.gameRunning = false; // デフォルトは停止状態。開始ボタンを押すまでティックは進まない
     this.awaitingChoice = false;
@@ -343,11 +372,17 @@ class MainScene extends Phaser.Scene {
       // PC(マウス)は左クリック(通常クリック)で反応。スマホ/タブレット(タッチ)はタップで反応
       // (右クリックも従来通り使えるように残す。leftButtonDown()はpointerdown時点では
       //  ボタン種別により信頼できない環境があるため、rightButtonDown()でないことをもって左クリック扱いする)
-      if (!pointer.wasTouch && pointer.rightButtonDown()) return;
+      // v6.6: 右クリックは単体の選択操作には使わないため、その場でドラッグパンの開始として扱う
+      if (!pointer.wasTouch && pointer.rightButtonDown()) {
+        this.mousePanActive = true;
+        this.mousePanLast = { x: pointer.x, y: pointer.y };
+        return;
+      }
 
       // 複数選択モード中: ここでは即座にトグルせず、開始点だけ記録する。
       // 実際にタップ(選択セットへの追加/解除)かドラッグ範囲選択かは、pointerup時点で
-      // 移動距離(DRAG_SELECT_THRESHOLD_PX)を見て判定する(v6.2)
+      // 移動距離(DRAG_SELECT_THRESHOLD_PX)を見て判定する(v6.2)。
+      // カメラのパンはこのモードでは2本指ドラッグで行う(pointermove側で処理)
       if (this.multiSelectMode) {
         this.dragSelectStart = { x: pointer.x, y: pointer.y, worldX: pointer.worldX, worldY: pointer.worldY };
         this.dragSelectActive = false;
@@ -365,11 +400,56 @@ class MainScene extends Phaser.Scene {
       const infoUnit = this.findUnitNearPixel(pointer.worldX, pointer.worldY, {});
       if (infoUnit) {
         this.showUnitValuePopup(infoUnit);
+        return;
       }
+
+      // v6.6: 何もない場所への一本指タップ/ドラッグは、そのままカメラパンの開始候補として扱う
+      // (指を動かさなければ移動量ゼロなので、従来通り何も起きないタップのまま)
+      this.emptyDragPanActive = true;
+      this.emptyDragPanLast = { x: pointer.x, y: pointer.y };
     });
 
     // 複数選択モード中のドラッグ移動: 閾値を超えたらドラッグ範囲選択とみなし、矩形を描画し続ける
     this.input.on('pointermove', (pointer) => {
+      // v6.6: 2本指ドラッグは、モードに関わらず常にカメラのパンとして最優先で処理する
+      const p1 = this.input.pointer1, p2 = this.input.pointer2;
+      if (p1 && p1.isDown && p2 && p2.isDown) {
+        const midX = (p1.x + p2.x) / 2, midY = (p1.y + p2.y) / 2;
+        if (this.panLastMid) {
+          const cam = this.cameras.main;
+          cam.scrollX -= (midX - this.panLastMid.x) / cam.zoom;
+          cam.scrollY -= (midY - this.panLastMid.y) / cam.zoom;
+        }
+        this.panLastMid = { x: midX, y: midY };
+        // 2本指パンに切り替わったら、片手のドラッグ範囲選択は取り消す
+        if (this.dragSelectStart) {
+          this.dragSelectStart = null;
+          this.dragSelectActive = false;
+          this.clearDragSelectRect();
+        }
+        this.emptyDragPanActive = false;
+        return;
+      }
+      this.panLastMid = null;
+
+      // v6.6: PCの右クリックドラッグによるパン
+      if (this.mousePanActive) {
+        const cam = this.cameras.main;
+        cam.scrollX -= (pointer.x - this.mousePanLast.x) / cam.zoom;
+        cam.scrollY -= (pointer.y - this.mousePanLast.y) / cam.zoom;
+        this.mousePanLast = { x: pointer.x, y: pointer.y };
+        return;
+      }
+
+      // v6.6: 単体選択モードで何もない場所からの一本指ドラッグによるパン
+      if (this.emptyDragPanActive) {
+        const cam = this.cameras.main;
+        cam.scrollX -= (pointer.x - this.emptyDragPanLast.x) / cam.zoom;
+        cam.scrollY -= (pointer.y - this.emptyDragPanLast.y) / cam.zoom;
+        this.emptyDragPanLast = { x: pointer.x, y: pointer.y };
+        return;
+      }
+
       if (!this.dragSelectStart || !this.multiSelectMode) return;
       const dx = pointer.x - this.dragSelectStart.x, dy = pointer.y - this.dragSelectStart.y;
       if (!this.dragSelectActive && Math.hypot(dx, dy) >= DRAG_SELECT_THRESHOLD_PX) {
@@ -383,6 +463,13 @@ class MainScene extends Phaser.Scene {
     // 複数選択モード中の指離し/クリック解除: ドラッグだったら矩形内を一括選択、
     // 動いていなければ従来通りタップとして単体の追加/解除を行う
     this.input.on('pointerup', (pointer) => {
+      // v6.6: パン系の状態は指を離すたびに必ずリセットする(ドラッグ選択の判定より先に処理)
+      this.panLastMid = null;
+      this.mousePanActive = false;
+      this.mousePanLast = null;
+      this.emptyDragPanActive = false;
+      this.emptyDragPanLast = null;
+
       if (!this.dragSelectStart) return;
       const start = this.dragSelectStart;
       const wasActive = this.dragSelectActive;
@@ -463,6 +550,11 @@ class MainScene extends Phaser.Scene {
     this.zoomMode = mode;
     this.cameras.main.setZoom(ZOOM_PRESETS[mode]);
     window.__jintoriaUI.setZoomMode(mode);
+  }
+
+  // v6.6: パンで盤面を見失った時に、盤面全体の中心へカメラを戻す
+  recenterCamera() {
+    this.cameras.main.centerOn(this.worldCenter.x, this.worldCenter.y);
   }
 
   // Phaserが毎フレーム自動的に呼ぶ。陣地の再描画はここでまとめて処理し、
